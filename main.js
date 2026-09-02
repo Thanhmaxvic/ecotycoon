@@ -2849,9 +2849,10 @@ class EcoTycoon extends Phaser.Scene {
 
         // Player Logic (disabled while the trash-catching minigame or any overlay menu is open)
         if (this.player && this.gameState === 'PLAYING' && !this.minigameMenu.visible && !this.isOverlayOpen()) {
-            const speed = CONFIG.PLAYER_SPEED * (delta / 1000);
+            const speed = this.playerSpeed * (delta / 1000);
             let vx = 0;
             let vy = 0;
+            let isJoystick = false;
             
             if (this.cursors.left.isDown || this.wasd.A.isDown) vx -= 1;
             if (this.cursors.right.isDown || this.wasd.D.isDown) vx += 1;
@@ -2861,15 +2862,29 @@ class EcoTycoon extends Phaser.Scene {
             if (this.joystickVector.x !== 0 || this.joystickVector.y !== 0) {
                 vx = this.joystickVector.x;
                 vy = this.joystickVector.y;
+                isJoystick = true;
             }
 
             if (vx !== 0 || vy !== 0) {
                 const length = Math.sqrt(vx*vx + vy*vy);
-                vx /= length;
-                vy /= length;
-                this.player.x += vx * speed;
-                this.player.y += vy * speed;
-                this.player.flipX = vx < 0;
+                let moveX = vx;
+                let moveY = vy;
+                
+                if (isJoystick) {
+                    // Giữ nguyên độ lớn của vector để điều khiển analog chính xác hơn
+                    // Giảm tốc độ tối đa của joystick xuống để thật hơn
+                    const joystickSpeedMultiplier = 0.6;
+                    moveX *= joystickSpeedMultiplier;
+                    moveY *= joystickSpeedMultiplier;
+                } else if (length > 1) {
+                    // Chuẩn hóa vector cho bàn phím khi đi chéo
+                    moveX /= length;
+                    moveY /= length;
+                }
+                
+                this.player.x += moveX * speed;
+                this.player.y += moveY * speed;
+                this.player.flipX = moveX < 0;
             }
 
             const playerGrid = this.clampPlayerToIsland();
