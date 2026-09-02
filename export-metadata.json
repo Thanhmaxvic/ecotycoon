@@ -1,0 +1,16 @@
+{
+  "name": "Eco-Tycoon",
+  "revisionLabel": "Tăng chiều sâu vận hành và phản hồi phục hồi",
+  "description": "Eco-Tycoon is a casual, cartoonish 2.5D isometric environmental simulation tycoon (Phaser 3/HTML5 Canvas). The island starts in a polluted state (grey/brown land, dark water, dead trees) and transitions to a clean state (bright green grass, flowers, clear water) as the player operates environmental machines. The core loop is to place and run a central water/trash filter system (fed by operational inputs) and related infrastructure (greenhouse, solar panels, wind turbines, conveyor belt) to raise a Cleanliness percentage. As Cleanliness increases, the game uses a progressive masking/radial reveal effect to expand clean terrain over polluted terrain. The player wins by reaching a target Cleanliness level (e.g., fully clean). AI-generated isometric placeholder assets are used for the conveyor belt, central filter machine with glass tubes, greenhouse, solar panels, and wind turbines.",
+  "mode": "Universal",
+  "exportDate": "2026-09-02T00:59:20.241Z",
+  "rosebudBuiltInSplash": {
+    "present": true,
+    "version": 1
+  },
+  "assetCount": 83,
+  "assetTypes": [
+    "image",
+    "audio"
+  ]
+}

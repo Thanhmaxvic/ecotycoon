@@ -1,0 +1,9 @@
+{
+  "name": "eco-tycoon-atk-sd",
+  "version": "1.0.0",
+  "description": "2.5D isometric environmental tycoon game built with Phaser 3",
+  "scripts": {
+    "dev": "npx -y serve ."
+  },
+  "private": true
+}
