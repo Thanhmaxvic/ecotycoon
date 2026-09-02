@@ -507,11 +507,23 @@ class LevelSelectScene extends Phaser.Scene {
         btnBg.fillRoundedRect(x - (w - 40) / 2, btnY - 22, w - 40, 44, 8);
         this.add.text(x, btnY, '▶ BẮT ĐẦU', { font: 'bold 18px Inter', fill: '#fff' }).setOrigin(0.5);
         this.add.rectangle(x, btnY, w - 40, 44, 0x0, 0).setInteractive({ useHandCursor: true })
-            .on('pointerdown', () => this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id }));
+            .on('pointerdown', () => {
+                if (this.gameMode === 'multi') {
+                    this.scene.start('MatchmakingScene', { mapTheme: theme.id });
+                } else {
+                    this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id });
+                }
+            });
 
         // Whole card is hoverable/clickable too for convenience
         const hitArea = this.add.rectangle(x, y, w, h, 0x0, 0).setInteractive({ useHandCursor: true });
-        hitArea.on('pointerdown', () => this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id }));
+        hitArea.on('pointerdown', () => {
+            if (this.gameMode === 'multi') {
+                this.scene.start('MatchmakingScene', { mapTheme: theme.id });
+            } else {
+                this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id });
+            }
+        });
         hitArea.on('pointerover', () => {
             bg.clear();
             bg.fillStyle(0x1c3540, 1);
@@ -529,6 +541,173 @@ class LevelSelectScene extends Phaser.Scene {
     }
 }
 
+class MatchmakingScene extends Phaser.Scene {
+    constructor() { super('MatchmakingScene'); }
+
+    init(data) {
+        this.mapTheme = data.mapTheme;
+    }
+
+    create() {
+        const cx = this.cameras.main.width / 2;
+        const cy = this.cameras.main.height / 2;
+
+        // Background
+        const bg = this.add.image(cx, cy, 'level_select_bg').setOrigin(0.5);
+        const scale = Math.max(this.cameras.main.width / bg.width, this.cameras.main.height / bg.height);
+        bg.setScale(scale);
+        this.add.rectangle(0, 0, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7).setOrigin(0);
+
+        this.add.text(cx, cy - 120, 'ĐANG TÌM PHÒNG THI ĐẤU...', { font: 'bold 36px Inter', fill: '#ffcc00' }).setOrigin(0.5);
+        this.statusText = this.add.text(cx, cy - 40, 'Đang kết nối máy chủ...', { font: '24px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
+        this.playersListText = this.add.text(cx, cy + 40, '', { font: '20px Inter', fill: '#9cff75', align: 'center' }).setOrigin(0.5);
+
+        this.myId = Math.random().toString(36).substring(2, 10);
+        this.username = localStorage.getItem('eco_username') || 'Guest_' + Math.floor(Math.random() * 1000);
+
+        // Fixed room for now so users can find each other easily
+        this.roomName = 'eco_multiplayer_lobby_v1';
+        this.channel = supabase.channel(this.roomName, {
+            config: {
+                presence: { key: this.myId }
+            }
+        });
+
+        this.players = [];
+
+        this.channel
+            .on('presence', { event: 'sync' }, () => {
+                const state = this.channel.presenceState();
+                this.players = [];
+                for (const key in state) {
+                    if (state[key][0]) {
+                        this.players.push({
+                            id: key,
+                            username: state[key][0].username,
+                            joinedAt: state[key][0].joinedAt
+                        });
+                    }
+                }
+                
+                // Sort by ID to guarantee the EXACT same order on all clients
+                this.players.sort((a, b) => a.id.localeCompare(b.id));
+
+                this.statusText.setText(`Người chơi đang chờ: ${this.players.length} / 3`);
+                this.playersListText.setText(this.players.map((p, i) => `${i + 1}. ${p.username} ${p.id === this.myId ? '(Bạn)' : ''}`).join('\n'));
+
+                if (this.players.length >= 3) {
+                    const top3 = this.players.slice(0, 3);
+                    const myIndex = top3.findIndex(p => p.id === this.myId);
+                    
+                    if (myIndex !== -1) {
+                        this.statusText.setText('ĐÃ ĐỦ NGƯỜI! CHUẨN BỊ VÀO TRẬN...');
+                        if (!this.startingMatch) {
+                            this.startingMatch = true;
+                            const snapshot = JSON.parse(JSON.stringify(top3));
+                            const snapIdx = myIndex;
+                            this.time.delayedCall(1500, () => {
+                                this.scene.start('EcoTycoon', { 
+                                mode: 'multi', 
+                                mapTheme: this.mapTheme, 
+                                roomId: this.roomName + '_' + snapshot[0].id,
+                                myIndex: snapIdx,
+                                myId: this.myId,
+                                players: snapshot
+                            });
+                            // Trì hoãn unsubscribe
+                            setTimeout(() => {
+                                try { this.channel.unsubscribe(); } catch(e) {}
+                            }, 15000);
+                        });
+                        }
+                    } else {
+                        this.statusText.setText('Phòng đã đầy! Vui lòng chờ trận sau...');
+                    }
+                }
+            })
+            .subscribe(async (status) => {
+                if (status === 'SUBSCRIBED') {
+                    await this.channel.track({ username: this.username, joinedAt: Date.now() });
+                    
+                    // Hàm kiểm tra đủ người chơi và chuyển cảnh
+                    this._checkAndTransition = () => {
+                        if (this.startingMatch) return;
+                        const state = this.channel.presenceState();
+                        const currentPlayers = [];
+                        for (const key in state) {
+                            if (state[key].length > 0) {
+                                currentPlayers.push({
+                                    id: key,
+                                    username: state[key][0].username,
+                                    joinedAt: state[key][0].joinedAt
+                                });
+                            }
+                        }
+                        currentPlayers.sort((a, b) => a.id.localeCompare(b.id));
+                        
+                        this.statusText.setText(`Người chơi đang chờ: ${currentPlayers.length} / 3`);
+                        this.playersListText.setText(currentPlayers.map((p, i) => `${i + 1}. ${p.username} ${p.id === this.myId ? '(Bạn)' : ''}`).join('\n'));
+                        
+                        if (currentPlayers.length >= 3 && !this.startingMatch) {
+                            const top3 = currentPlayers.slice(0, 3);
+                            const myIdx = top3.findIndex(p => p.id === this.myId);
+                            if (myIdx !== -1) {
+                                this.startingMatch = true;
+                                clearInterval(this._pollInterval);
+                                document.removeEventListener('visibilitychange', this._visHandler);
+                                this.statusText.setText('ĐÃ ĐỦ NGƯỜI! CHUẨN BỊ VÀO TRẬN...');
+                                
+                                // Lưu snapshot danh sách người chơi
+                                const snapshot = JSON.parse(JSON.stringify(top3));
+                                const snapshotIdx = myIdx;
+                                
+                                setTimeout(() => {
+                                    // Chuyển scene TRƯỚC, KHÔNG unsubscribe ngay
+                                    // để các tab khác vẫn thấy đủ 3 người
+                                    this.scene.start('EcoTycoon', {
+                                        mode: 'multi',
+                                        mapTheme: this.mapTheme,
+                                        roomId: this.roomName + '_' + snapshot[0].id,
+                                        myIndex: snapshotIdx,
+                                        myId: this.myId,
+                                        players: snapshot
+                                    });
+                                    
+                                    // Trì hoãn unsubscribe 15 giây để các tab nền kịp tỉnh dậy
+                                    setTimeout(() => {
+                                        try { this.channel.unsubscribe(); } catch(e) {}
+                                    }, 15000);
+                                }, 1500);
+                            }
+                        }
+                    };
+                    
+                    // Polling bằng setInterval nguyên bản
+                    this._pollInterval = setInterval(() => this._checkAndTransition(), 2000);
+                    
+                    // Khi user quay lại tab bị đóng băng -> lập tức kiểm tra
+                    this._visHandler = () => {
+                        if (document.visibilityState === 'visible') {
+                            this._checkAndTransition();
+                        }
+                    };
+                    document.addEventListener('visibilitychange', this._visHandler);
+                }
+            });
+            
+        // Exit button
+        const btnBack = this.add.graphics();
+        btnBack.fillStyle(0x555555, 0.9);
+        btnBack.fillRoundedRect(20, this.cameras.main.height - 60, 140, 44, 8);
+        this.add.text(90, this.cameras.main.height - 38, '⬅ HỦY BỎ', { font: 'bold 16px Inter', fill: '#fff' }).setOrigin(0.5);
+        this.add.rectangle(90, this.cameras.main.height - 38, 140, 44, 0x0, 0).setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                this.channel.unsubscribe();
+                this.scene.start('MainMenuScene');
+            });
+    }
+}
+
 class EcoTycoon extends Phaser.Scene {
     constructor() {
         super('EcoTycoon');
@@ -537,6 +716,13 @@ class EcoTycoon extends Phaser.Scene {
     init(data) {
         this.gameMode = data.mode || 'single';
         this.mapTheme = MAP_THEMES.find(t => t.id === data.mapTheme) || MAP_THEMES[0];
+        
+        if (this.gameMode === 'multi') {
+            this.roomId = data.roomId;
+            this.myIndex = data.myIndex;
+            this.myId = data.myId;
+            this.multiPlayers = data.players;
+        }
         this.cleanliness = 0; // Starting severely polluted
         this.money = CONFIG.START_MONEY;
         this.ecoPoints = CONFIG.START_ECO_POINTS;
@@ -603,7 +789,24 @@ class EcoTycoon extends Phaser.Scene {
 
         if (this.gameMode === 'multi') {
             this.createLeaderboardUI();
-            this.createMatchSetupMenu();
+            // Giữ trạng thái SETUP - chờ Host chọn thời gian qua createMatchSetupMenu()
+            this.gameState = 'SETUP';
+            this.matchDuration = 0;
+            this.matchTimer = 0;
+            
+            // Setup real players for leaderboard
+            this.bots = [];
+            for (let i = 0; i < 3; i++) {
+                if (i !== this.myIndex) {
+                    this.bots.push({
+                        name: this.multiPlayers[i].username,
+                        score: 0,
+                        isPlayer: false,
+                        originalIndex: i
+                    });
+                }
+            }
+            this.updateLeaderboard();
         } else {
             this.gameState = 'PLAYING';
             this.matchDuration = Infinity;
@@ -749,14 +952,8 @@ class EcoTycoon extends Phaser.Scene {
         const w = this.cameras.main.width;
         const h = this.cameras.main.height;
         
-        if (this.gameMode === 'multi') {
-            this.zones.push({ name: 'KHU 1 (BẠN)', cx: w * 0.25, cy: h * 0.65, isPlayer: true, scale: 1.1, gridScale: 0.5 });
-            this.zones.push({ name: 'Khu 2 (Nga)', cx: w * 0.75, cy: h * 0.65, isPlayer: false, scale: 1.1, gridScale: 0.5 });
-            this.zones.push({ name: 'Khu 3 (Tom)', cx: w * 0.25, cy: h * 0.25, isPlayer: false, scale: 1.1, gridScale: 0.5 });
-            this.zones.push({ name: 'Khu 4 (Chen)', cx: w * 0.75, cy: h * 0.25, isPlayer: false, scale: 1.1, gridScale: 0.5 });
-        } else {
-            this.zones.push({ name: 'ĐẢO SINH THÁI', cx: w / 2, cy: 380, isPlayer: true, scale: 2.2, gridScale: 1.0 });
-        }
+        // Luôn sử dụng 1 hòn đảo trung tâm
+        this.zones.push({ name: 'ĐẢO SINH THÁI', cx: w / 2, cy: 380, isPlayer: true, scale: 2.2, gridScale: 1.0 });
 
         const t = this.mapTheme.textures;
         this.zoneVisuals = [];
@@ -766,15 +963,6 @@ class EcoTycoon extends Phaser.Scene {
             const recoveryIsland = this.add.image(zone.cx, zone.cy, t.recovery).setOrigin(0.5).setDepth(1).setScale(zone.scale);
             const thrivingIsland = this.add.image(zone.cx, zone.cy, t.thriving).setOrigin(0.5).setDepth(2).setScale(zone.scale);
             const cleanIsland = this.add.image(zone.cx, zone.cy, t.clean).setOrigin(0.5).setDepth(3).setScale(zone.scale);
-            
-            if (this.gameMode === 'multi') {
-                this.add.text(zone.cx, zone.cy - 120, zone.name, {
-                    font: 'bold 20px Inter',
-                    fill: zone.isPlayer ? '#00ff00' : '#ffcc00',
-                    stroke: '#000000',
-                    strokeThickness: 4
-                }).setOrigin(0.5).setDepth(5);
-            }
 
             this.zoneVisuals.push({ pollutedIsland, recoveryIsland, thrivingIsland, cleanIsland });
 
@@ -809,20 +997,75 @@ class EcoTycoon extends Phaser.Scene {
                 const posX = this.islandStartX + (x - y) * (tw / 2);
                 const posY = this.islandStartY + (x + y) * (th / 2);
 
-                // Draw smaller scaled isometric cell visually
                 drawGridCell(posX, posY, tw / 3, th / 3);
+                
+                let buildable = x > 0 && x < CONFIG.GRID_SIZE - 1 && y > 0 && y < CONFIG.GRID_SIZE - 1;
+                let ownerIndex = -1; // -1 means no one
+                
+                if (this.gameMode === 'multi') {
+                    // Boundaries for Y-shape
+                    // 1. Diagonal x == y for x < 5
+                    // 2. Vertical-ish y == 5 for x >= 5
+                    // 3. Horizontal-ish x == 5 for y >= 5
+                    if ((x === y && x < 5) || (y === 5 && x >= 5) || (x === 5 && y >= 5)) {
+                        buildable = false;
+                    } else {
+                        if (x < 5 && y > x) ownerIndex = 0; // Left Region
+                        else if (y < 5 && x > y) ownerIndex = 1; // Right Region
+                        else if (x > 5 && y > 5) ownerIndex = 2; // Bottom Region
+                        
+                        // Player can only build in their own quadrant
+                        if (ownerIndex !== this.myIndex) {
+                            buildable = false;
+                        }
+                    }
+                }
 
                 this.grid[x][y] = {
-                    x,
-                    y,
-                    posX,
-                    posY,
+                    x, y, posX, posY,
                     isWater: false,
                     building: null,
                     pollutedDecor: null,
                     hasTrash: false,
-                    isBuildable: x > 0 && x < CONFIG.GRID_SIZE - 1 && y > 0 && y < CONFIG.GRID_SIZE - 1
+                    isBuildable: buildable,
+                    ownerIndex: ownerIndex
                 };
+            }
+        }
+        
+        if (this.gameMode === 'multi') {
+            const boundaryGraphics = this.add.graphics().setDepth(4);
+            boundaryGraphics.lineStyle(6, 0x88ccff, 0.4); // Faint blue thick line
+            
+            const getGridPos = (gx, gy) => {
+                return {
+                    x: this.islandStartX + (gx - gy) * (tw / 2),
+                    y: this.islandStartY + (gx + gy) * (th / 2)
+                };
+            };
+            
+            // Boundary 1: Diagonal x=y for x < 5
+            const p1 = getGridPos(0, 0);
+            const p2 = getGridPos(5, 5);
+            boundaryGraphics.lineBetween(p1.x, p1.y, p2.x, p2.y);
+            
+            // Boundary 2: x=5 for y >= 5
+            const p3 = getGridPos(5, 5);
+            const p4 = getGridPos(5, 10);
+            boundaryGraphics.lineBetween(p3.x, p3.y, p4.x, p4.y);
+            
+            // Boundary 3: y=5 for x >= 5
+            const p5 = getGridPos(5, 5);
+            const p6 = getGridPos(10, 5);
+            boundaryGraphics.lineBetween(p5.x, p5.y, p6.x, p6.y);
+            
+            // Add Nametags in the middle of each region
+            if (this.multiPlayers && this.multiPlayers.length >= 3) {
+                const colors = ['#ff4444', '#44ff44', '#4444ff'];
+                const positions = [{x: 2, y: 8}, {x: 8, y: 2}, {x: 8, y: 8}];
+                for(let i=0; i<3; i++) {
+                    this.add.text(getGridPos(positions[i].x, positions[i].y).x, getGridPos(positions[i].x, positions[i].y).y - 20, this.multiPlayers[i].username, { font: 'bold 24px Inter', fill: colors[i] }).setOrigin(0.5).setDepth(5).setAlpha(0.7);
+                }
             }
         }
     }
@@ -831,7 +1074,11 @@ class EcoTycoon extends Phaser.Scene {
         this.time.addEvent({
             delay: 3000,
             loop: true,
-            callback: () => this.spawnTrashOnLand()
+            callback: () => {
+                // Only Host spawns trash in multi mode
+                if (this.gameMode === 'multi' && this.myIndex !== 0) return;
+                this.spawnTrashOnLand();
+            }
         });
     }
 
@@ -861,52 +1108,291 @@ class EcoTycoon extends Phaser.Scene {
             trash.setData('variantKey', variantKey);
             trash.setData('cell', cell);
             trash.setData('targeted', false);
+            trash.setData('id', Math.random().toString(36).substr(2, 9)); // Unique ID for sync
             
             cell.hasTrash = true;
             this.landTrash.push(trash);
             
             this.updateHUD();
+            
+            if (this.gameMode === 'multi') {
+                this.roomChannel.send({
+                    type: 'broadcast',
+                    event: 'trash_spawned',
+                    payload: {
+                        id: trash.getData('id'),
+                        typeIndex: TRASH_TYPES.indexOf(trashType),
+                        variantKey: variantKey,
+                        gx: cell.x,
+                        gy: cell.y
+                    }
+                });
+            }
 
-            if (this.landTrash.length >= CONFIG.MAX_TRASH_ALLOWED) {
-                this.triggerGameOver('RÁC ĐÃ NGẬP KÍN ĐẢO!');
-            } else if (this.landTrash.length === Math.floor(CONFIG.MAX_TRASH_ALLOWED * 0.8)) {
-                this.showToast('CẢNH BÁO: Rác sắp ngập đảo!');
+            if (this.gameMode === 'multi') {
+                if (this.landTrash.length === Math.floor(CONFIG.MAX_TRASH_ALLOWED * 0.8)) {
+                    this.showToast('CẢNH BÁO: Rác đã gần đầy, hãy nhanh chóng dọn dẹp!');
+                }
+                // Trong Multiplayer, không Game Over khi rác đầy. Chỉ ngừng sinh ra (bằng cách giới hạn max trash).
+            } else {
+                if (this.landTrash.length >= CONFIG.MAX_TRASH_ALLOWED) {
+                    this.triggerGameOver('RÁC ĐÃ NGẬP KÍN ĐẢO!');
+                } else if (this.landTrash.length === Math.floor(CONFIG.MAX_TRASH_ALLOWED * 0.8)) {
+                    this.showToast('CẢNH BÁO: Rác sắp ngập đảo!');
+                }
             }
         } else {
-            if (this.landTrash.length >= 10) {
+            if (this.gameMode !== 'multi' && this.landTrash.length >= 10) {
                  this.triggerGameOver('RÁC ĐÃ NGẬP KÍN ĐẢO!');
             }
         }
     }
 
     setupPlayer() {
-        const startX = this.islandStartX;
-        const startY = this.islandStartY + (550 * this.islandGridScale);
+        const tw = CONFIG.TILE_WIDTH * this.islandGridScale;
+        const th = CONFIG.TILE_HEIGHT * this.islandGridScale;
+        const getGridPos = (gx, gy) => {
+            return {
+                x: this.islandStartX + (gx - gy) * (tw / 2),
+                y: this.islandStartY + (gx + gy) * (th / 2)
+            };
+        };
+
+        let myStartGrid = { x: 5, y: 5 }; // default center
         
-        this.playerInteractionRing = this.add.ellipse(startX, startY + 30 * this.islandGridScale, 104 * this.islandGridScale, 28 * this.islandGridScale, 0x32cd32, 0.22)
+        if (this.gameMode === 'multi') {
+            const startPositions = [
+                { x: 2, y: 8 }, // Left
+                { x: 8, y: 2 }, // Right
+                { x: 8, y: 8 }  // Bottom
+            ];
+            myStartGrid = startPositions[this.myIndex];
+            
+            // Setup Network Avatars for other players
+            this.networkPlayers = [];
+            for (let i = 0; i < 3; i++) {
+                if (i !== this.myIndex) {
+                    const pos = getGridPos(startPositions[i].x, startPositions[i].y);
+                    const netSprite = this.add.image(pos.x, pos.y, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000).setTint(0x8888ff);
+                    
+                    // Add safety check in case this.multiPlayers[i] is undefined for some reason
+                    const pName = this.multiPlayers[i] ? this.multiPlayers[i].username : `Guest_${i}`;
+                    const netName = this.add.text(pos.x, pos.y - 40, pName, { font: 'bold 14px Inter', fill: '#8888ff' }).setOrigin(0.5).setDepth(1001);
+                    this.networkPlayers[i] = { sprite: netSprite, text: netName, heldTrashIcons: [] };
+                }
+            }
+            
+            this.setupNetwork();
+        } else {
+            // single player starts near bottom
+            myStartGrid = { x: 5, y: 8 };
+        }
+
+        const startPos = getGridPos(myStartGrid.x, myStartGrid.y);
+        
+        this.playerInteractionRing = this.add.ellipse(startPos.x, startPos.y + 30 * this.islandGridScale, 104 * this.islandGridScale, 28 * this.islandGridScale, 0x32cd32, 0.22)
             .setStrokeStyle(3, 0x9cff75, 0.75)
             .setDepth(995);
             
-        this.player = this.add.image(startX, startY, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000);
+        this.player = this.add.image(startPos.x, startPos.y, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000);
+        this.player.gridX = myStartGrid.x;
+        this.player.gridY = myStartGrid.y;
+    }
+
+    setupNetwork() {
+        this.roomChannel = supabase.channel(this.roomId);
+        
+        this.roomChannel
+            .on('broadcast', { event: 'player_moved' }, (payload) => {
+                const data = payload.payload;
+                if (data.id !== this.myId) {
+                    const netIndex = this.multiPlayers.findIndex(p => p.id === data.id);
+                    if (netIndex !== -1 && this.networkPlayers[netIndex]) {
+                        const netPlayer = this.networkPlayers[netIndex];
+                        
+                        // Tween movement
+                        this.tweens.add({
+                            targets: netPlayer.sprite,
+                            x: data.x,
+                            y: data.y,
+                            duration: 100 // assuming 10hz update rate
+                        });
+                        this.tweens.add({
+                            targets: netPlayer.text,
+                            x: data.x,
+                            y: data.y - 40,
+                            duration: 100
+                        });
+                        
+                        netPlayer.sprite.flipX = data.flipX;
+                        netPlayer.sprite.setDepth(data.depth);
+                        
+                        // Update held trash (simple sync: just show number of icons)
+                        if (data.heldTrashCount !== netPlayer.heldTrashIcons.length) {
+                            netPlayer.heldTrashIcons.forEach(i => i.destroy());
+                            netPlayer.heldTrashIcons = [];
+                            for(let j=0; j<data.heldTrashCount; j++) {
+                                const icon = this.add.image(data.x, data.y - 50 - j * 20, 'trash_bag').setScale(0.08).setDepth(data.depth + 1);
+                                netPlayer.heldTrashIcons.push(icon);
+                            }
+                        } else {
+                            netPlayer.heldTrashIcons.forEach((icon, j) => {
+                                this.tweens.add({ targets: icon, x: data.x, y: data.y - 50 - j * 20, duration: 100 });
+                                icon.setDepth(data.depth + 1);
+                            });
+                        }
+                    }
+                }
+            })
+            .on('broadcast', { event: 'start_match' }, (payload) => {
+                if (this.gameState !== 'PLAYING' && payload.payload && payload.payload.duration) {
+                    this.startMatch(payload.payload.duration);
+                }
+            })
+            .on('broadcast', { event: 'chat_msg' }, (payload) => {
+                const data = payload.payload;
+                if (data && data.username && data.message) {
+                    this.appendChatMessage(data.username, data.message);
+                }
+            })
+            .on('broadcast', { event: 'sync_stats' }, (payload) => {
+                const data = payload.payload;
+                if (data.id !== this.myId) {
+                    const netIndex = this.multiPlayers.findIndex(p => p.id === data.id);
+                    if (netIndex !== -1) {
+                        this.playerCleanliness[netIndex] = data.cleanliness;
+                        // Check if bots is initialized before accessing
+                        if (this.bots) {
+                            const botObj = this.bots.find(b => b.originalIndex === netIndex);
+                            if (botObj) {
+                                botObj.score = data.cleanliness * 10 + data.money * 0.1 + data.ecoPoints * 0.5;
+                                this.updateLeaderboard();
+                            }
+                        }
+                    }
+                }
+            })
+            .on('broadcast', { event: 'building_placed' }, (payload) => {
+                const data = payload.payload;
+                if (data.id !== this.myId) {
+                    const cell = this.grid[data.gx][data.gy];
+                    if (cell && !cell.building) {
+                        const bType = BUILDING_TYPES.find(b => b.key === data.key);
+                        if (bType) {
+                            const b = this.add.image(cell.posX, cell.posY + 18, bType.key).setScale(0.1).setDepth(this.getDepthForCell(cell, 5));
+                            this.buildingGroup.add(b);
+                            cell.building = b;
+                            this.buildings.push(b);
+                            this.dustEmitter.explode(10, cell.posX, cell.posY);
+                        }
+                    }
+                }
+            })
+            .on('broadcast', { event: 'decor_placed' }, (payload) => {
+                const data = payload.payload;
+                if (data.id !== this.myId) {
+                    const cell = this.grid[data.gx][data.gy];
+                    if (cell && !cell.building) {
+                        if (cell.pollutedDecor) {
+                            cell.pollutedDecor.destroy();
+                            cell.pollutedDecor = null;
+                        }
+                        const d = this.add.image(cell.posX, cell.posY - 10, data.key).setScale(0.12).setDepth(this.getDepthForCell(cell, 4));
+                        d.setMask(this.geometryMask);
+                        this.buildingGroup.add(d);
+                        cell.building = d;
+                        d.setData('isDecor', true);
+                        this.dustEmitter.explode(10, cell.posX, cell.posY);
+                    }
+                }
+            })
+            .on('broadcast', { event: 'trash_spawned' }, (payload) => {
+                const data = payload.payload;
+                const cell = this.grid[data.gx][data.gy];
+                if (cell && !cell.hasTrash) {
+                    const trashType = TRASH_TYPES[data.typeIndex];
+                    let sc = 0.06 * this.islandGridScale;
+                    if (trashType.type === 'electronic') sc = 0.04 * this.islandGridScale;
+                    
+                    const trash = this.add.image(cell.posX, cell.posY - 10, data.variantKey).setScale(sc).setDepth((cell.x + cell.y) * 10 + 2);
+                    trash.setData('type', trashType.type);
+                    trash.setData('variantKey', data.variantKey);
+                    trash.setData('cell', cell);
+                    trash.setData('targeted', false);
+                    trash.setData('id', data.id);
+                    
+                    cell.hasTrash = true;
+                    this.landTrash.push(trash);
+                    this.updateHUD();
+                }
+            })
+            .on('broadcast', { event: 'trash_picked' }, (payload) => {
+                const data = payload.payload;
+                const trashIdx = this.landTrash.findIndex(t => t.getData('id') === data.id);
+                if (trashIdx !== -1) {
+                    const t = this.landTrash[trashIdx];
+                    t.getData('cell').hasTrash = false;
+                    t.destroy();
+                    this.landTrash.splice(trashIdx, 1);
+                    this.updateHUD();
+                }
+            })
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    // Send out movement periodically
+                    this.time.addEvent({
+                        delay: 100, // 10hz
+                        loop: true,
+                        callback: () => {
+                            if (this.player && this.gameState === 'PLAYING') {
+                                this.roomChannel.send({
+                                    type: 'broadcast',
+                                    event: 'player_moved',
+                                    payload: {
+                                        id: this.myId,
+                                        x: this.player.x,
+                                        y: this.player.y,
+                                        flipX: this.player.flipX,
+                                        depth: this.player.depth,
+                                        heldTrashCount: this.heldTrashArray.length
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    
+                    // Send stats periodically
+                    this.time.addEvent({
+                        delay: 1000, // 1hz
+                        loop: true,
+                        callback: () => {
+                            if (this.gameState === 'PLAYING') {
+                                this.roomChannel.send({
+                                    type: 'broadcast',
+                                    event: 'sync_stats',
+                                    payload: {
+                                        id: this.myId,
+                                        cleanliness: this.cleanliness,
+                                        money: this.money,
+                                        ecoPoints: this.ecoPoints
+                                    }
+                                });
+                            }
+                        }
+                    });
+                }
+            });
     }
 
     setupMask() {
         this.zoneVisuals.forEach((zv, idx) => {
-            const zone = this.zones[idx];
-            
             const recoveryGraphics = this.make.graphics();
-            recoveryGraphics.fillStyle(0xffffff);
-            recoveryGraphics.fillCircle(zone.cx, zone.cy, 0);
             zv.recoveryIsland.setMask(recoveryGraphics.createGeometryMask());
 
             const thrivingGraphics = this.make.graphics();
-            thrivingGraphics.fillStyle(0xffffff);
-            thrivingGraphics.fillCircle(zone.cx, zone.cy, 0);
             zv.thrivingIsland.setMask(thrivingGraphics.createGeometryMask());
 
             const cleanGraphics = this.make.graphics();
-            cleanGraphics.fillStyle(0xffffff);
-            cleanGraphics.fillCircle(zone.cx, zone.cy, 0);
             const cleanMask = cleanGraphics.createGeometryMask();
             zv.cleanIsland.setMask(cleanMask);
 
@@ -914,14 +1400,16 @@ class EcoTycoon extends Phaser.Scene {
             zv.thrivingMaskGraphics = thrivingGraphics;
             zv.cleanMaskGraphics = cleanGraphics;
             
-            if (zone.isPlayer) {
-                this.maskCenter = { x: zone.cx, y: zone.cy };
-                this.recoveryMaskGraphics = recoveryGraphics;
-                this.thrivingMaskGraphics = thrivingGraphics;
-                this.maskGraphics = cleanGraphics;
-                this.geometryMask = cleanMask;
-            }
+            // Reference them directly for easier access
+            this.recoveryMaskGraphics = recoveryGraphics;
+            this.thrivingMaskGraphics = thrivingGraphics;
+            this.cleanMaskGraphics = cleanGraphics;
         });
+        
+        if (this.gameMode === 'multi') {
+            this.playerCleanliness = [0, 0, 0, 0];
+        }
+        this.geometryMask = this.cleanMaskGraphics.createGeometryMask();
     }
 
     setupUI() {
@@ -1114,6 +1602,10 @@ class EcoTycoon extends Phaser.Scene {
         this.createSeaMinigame();
         this.createExitMenu();
         this.createTrashInfoMenu();
+        if (this.gameMode === 'multi') {
+            this.createMatchSetupMenu();
+            this.createChatUI();
+        }
 
         this.updateHUD();
     }
@@ -1507,6 +1999,10 @@ class EcoTycoon extends Phaser.Scene {
             this.showToast('Chọn ô đất trống trong vùng đảo!');
             return;
         }
+        if (this.gameMode === 'multi' && cell.ownerIndex !== this.myIndex) {
+            this.showToast('Bạn chỉ được đặt ở khu vực của mình!');
+            return;
+        }
         if (cell.hasTrash) {
             this.showToast('Phải dọn rác trước khi đặt đồ trang trí!');
             return;
@@ -1546,6 +2042,19 @@ class EcoTycoon extends Phaser.Scene {
             this.highlightSelected({ setScale: () => {} }); // clear highlight
 
             this.updateHUD();
+            
+            if (this.gameMode === 'multi') {
+                this.roomChannel.send({
+                    type: 'broadcast',
+                    event: 'decor_placed',
+                    payload: {
+                        id: this.myId,
+                        gx: gx,
+                        gy: gy,
+                        key: this.selectedDecorType.key
+                    }
+                });
+            }
         } else {
              // Not enough points visual feedback
              const floatText = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2 + 100, 'Không đủ Eco Points!', {
@@ -1570,6 +2079,10 @@ class EcoTycoon extends Phaser.Scene {
         const cell = this.grid[gx][gy];
         if (!cell.isBuildable || cell.building) {
             this.showToast('Chọn ô đất trống trong vùng đảo!');
+            return;
+        }
+        if (this.gameMode === 'multi' && cell.ownerIndex !== this.myIndex) {
+            this.showToast('Bạn chỉ được xây nhà máy ở khu vực của mình!');
             return;
         }
         if (cell.hasTrash) {
@@ -1618,6 +2131,20 @@ class EcoTycoon extends Phaser.Scene {
 
             this.updateHUD();
             window.ProgressLogger.logProgress('building_placed', { type: b.getData('key') });
+            
+            if (this.gameMode === 'multi') {
+                this.roomChannel.send({
+                    type: 'broadcast',
+                    event: 'building_placed',
+                    payload: {
+                        id: this.myId,
+                        gx: gx,
+                        gy: gy,
+                        key: this.selectedBuildingType.key
+                    }
+                });
+            }
+            
             this.checkFullMapWinCondition();
         } else {
             this.showToast('Không đủ tiền!');
@@ -2295,6 +2822,224 @@ class EcoTycoon extends Phaser.Scene {
         this.showMinigameSelection();
     }
 
+    createChatUI() {
+        this.chatOpen = false;
+        this.unreadCount = 0;
+        
+        // --- Toggle Button (icon) at bottom-right ---
+        this.chatToggleBtn = document.createElement('div');
+        this.chatToggleBtn.style.position = 'absolute';
+        this.chatToggleBtn.style.right = '20px';
+        this.chatToggleBtn.style.bottom = '170px';
+        this.chatToggleBtn.style.width = '50px';
+        this.chatToggleBtn.style.height = '50px';
+        this.chatToggleBtn.style.borderRadius = '50%';
+        this.chatToggleBtn.style.backgroundColor = '#32cd32';
+        this.chatToggleBtn.style.display = 'flex';
+        this.chatToggleBtn.style.alignItems = 'center';
+        this.chatToggleBtn.style.justifyContent = 'center';
+        this.chatToggleBtn.style.cursor = 'pointer';
+        this.chatToggleBtn.style.zIndex = '10001';
+        this.chatToggleBtn.style.boxShadow = '0 4px 12px rgba(0,0,0,0.4)';
+        this.chatToggleBtn.style.transition = 'transform 0.2s';
+        this.chatToggleBtn.style.pointerEvents = 'auto';
+        this.chatToggleBtn.innerHTML = '<span style="font-size:24px;">💬</span>';
+        
+        // Badge (unread count)
+        this.chatBadge = document.createElement('div');
+        this.chatBadge.style.position = 'absolute';
+        this.chatBadge.style.top = '-4px';
+        this.chatBadge.style.right = '-4px';
+        this.chatBadge.style.backgroundColor = '#ff4444';
+        this.chatBadge.style.color = '#fff';
+        this.chatBadge.style.borderRadius = '50%';
+        this.chatBadge.style.width = '20px';
+        this.chatBadge.style.height = '20px';
+        this.chatBadge.style.fontSize = '11px';
+        this.chatBadge.style.fontWeight = 'bold';
+        this.chatBadge.style.display = 'none';
+        this.chatBadge.style.alignItems = 'center';
+        this.chatBadge.style.justifyContent = 'center';
+        this.chatBadge.style.fontFamily = 'Inter, sans-serif';
+        this.chatToggleBtn.appendChild(this.chatBadge);
+        
+        this.chatToggleBtn.addEventListener('mouseenter', () => { this.chatToggleBtn.style.transform = 'scale(1.1)'; });
+        this.chatToggleBtn.addEventListener('mouseleave', () => { this.chatToggleBtn.style.transform = 'scale(1)'; });
+        this.chatToggleBtn.addEventListener('click', () => this.toggleChat());
+        
+        // --- Chat Panel (hidden by default) ---
+        this.chatContainer = document.createElement('div');
+        this.chatContainer.style.position = 'absolute';
+        this.chatContainer.style.right = '20px';
+        this.chatContainer.style.bottom = '230px';
+        this.chatContainer.style.width = '300px';
+        this.chatContainer.style.height = '220px';
+        this.chatContainer.style.backgroundColor = 'rgba(0, 0, 0, 0.75)';
+        this.chatContainer.style.borderRadius = '10px';
+        this.chatContainer.style.border = '2px solid rgba(50, 205, 50, 0.4)';
+        this.chatContainer.style.display = 'none'; // hidden by default
+        this.chatContainer.style.flexDirection = 'column';
+        this.chatContainer.style.pointerEvents = 'auto';
+        this.chatContainer.style.zIndex = '10000';
+        this.chatContainer.style.overflow = 'hidden';
+        
+        // Chat header with close button
+        const chatHeader = document.createElement('div');
+        chatHeader.style.display = 'flex';
+        chatHeader.style.justifyContent = 'space-between';
+        chatHeader.style.alignItems = 'center';
+        chatHeader.style.padding = '6px 10px';
+        chatHeader.style.backgroundColor = 'rgba(50, 205, 50, 0.2)';
+        chatHeader.style.borderBottom = '1px solid rgba(255,255,255,0.1)';
+        
+        const chatTitle = document.createElement('span');
+        chatTitle.innerText = '💬 Trò chuyện';
+        chatTitle.style.color = '#9cff75';
+        chatTitle.style.fontWeight = 'bold';
+        chatTitle.style.fontSize = '13px';
+        chatTitle.style.fontFamily = 'Inter, sans-serif';
+        
+        const closeBtn = document.createElement('span');
+        closeBtn.innerText = '✕';
+        closeBtn.style.color = '#ff6666';
+        closeBtn.style.cursor = 'pointer';
+        closeBtn.style.fontSize = '16px';
+        closeBtn.style.fontWeight = 'bold';
+        closeBtn.style.padding = '0 4px';
+        closeBtn.addEventListener('click', () => this.toggleChat());
+        
+        chatHeader.appendChild(chatTitle);
+        chatHeader.appendChild(closeBtn);
+        
+        // Chat messages area
+        this.chatMessagesDiv = document.createElement('div');
+        this.chatMessagesDiv.style.flex = '1';
+        this.chatMessagesDiv.style.overflowY = 'auto';
+        this.chatMessagesDiv.style.padding = '8px';
+        this.chatMessagesDiv.style.color = '#ffffff';
+        this.chatMessagesDiv.style.fontSize = '12px';
+        this.chatMessagesDiv.style.fontFamily = 'Inter, sans-serif';
+        this.chatMessagesDiv.style.display = 'flex';
+        this.chatMessagesDiv.style.flexDirection = 'column';
+        this.chatMessagesDiv.style.gap = '4px';
+        
+        // Input area
+        const inputWrapper = document.createElement('div');
+        inputWrapper.style.display = 'flex';
+        inputWrapper.style.borderTop = '1px solid rgba(255,255,255,0.2)';
+        
+        this.chatInput = document.createElement('input');
+        this.chatInput.type = 'text';
+        this.chatInput.placeholder = 'Nhập tin nhắn...';
+        this.chatInput.style.flex = '1';
+        this.chatInput.style.padding = '8px';
+        this.chatInput.style.border = 'none';
+        this.chatInput.style.outline = 'none';
+        this.chatInput.style.backgroundColor = 'transparent';
+        this.chatInput.style.color = '#ffffff';
+        this.chatInput.style.fontFamily = 'Inter, sans-serif';
+        this.chatInput.style.fontSize = '13px';
+        
+        const sendBtn = document.createElement('button');
+        sendBtn.innerText = 'GỬI';
+        sendBtn.style.padding = '8px 12px';
+        sendBtn.style.backgroundColor = '#32cd32';
+        sendBtn.style.color = '#fff';
+        sendBtn.style.border = 'none';
+        sendBtn.style.cursor = 'pointer';
+        sendBtn.style.fontWeight = 'bold';
+        sendBtn.style.fontFamily = 'Inter, sans-serif';
+        sendBtn.style.borderBottomRightRadius = '8px';
+        
+        inputWrapper.appendChild(this.chatInput);
+        inputWrapper.appendChild(sendBtn);
+        
+        this.chatContainer.appendChild(chatHeader);
+        this.chatContainer.appendChild(this.chatMessagesDiv);
+        this.chatContainer.appendChild(inputWrapper);
+        
+        // Append to game container
+        const gameContainer = document.getElementById('game-container') || document.body;
+        gameContainer.appendChild(this.chatContainer);
+        gameContainer.appendChild(this.chatToggleBtn);
+        
+        const sendMessage = () => {
+            const txt = this.chatInput.value.trim();
+            if (txt.length > 0) {
+                this.appendChatMessage(this.multiPlayers[this.myIndex].username, txt);
+                if (this.roomChannel) {
+                    this.roomChannel.send({
+                        type: 'broadcast',
+                        event: 'chat_msg',
+                        payload: { username: this.multiPlayers[this.myIndex].username, message: txt }
+                    });
+                }
+                this.chatInput.value = '';
+            }
+        };
+        
+        sendBtn.addEventListener('click', sendMessage);
+        this.chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') sendMessage();
+            e.stopPropagation();
+        });
+        
+        // Clean up DOM elements when scene shuts down
+        this.events.on('shutdown', () => {
+            if (this.chatContainer && this.chatContainer.parentNode) {
+                this.chatContainer.parentNode.removeChild(this.chatContainer);
+            }
+            if (this.chatToggleBtn && this.chatToggleBtn.parentNode) {
+                this.chatToggleBtn.parentNode.removeChild(this.chatToggleBtn);
+            }
+        });
+        
+        this.appendChatMessage('Hệ thống', 'Chào mừng đến với chế độ Nhiều Người Chơi!');
+    }
+
+    toggleChat() {
+        this.chatOpen = !this.chatOpen;
+        if (this.chatOpen) {
+            this.chatContainer.style.display = 'flex';
+            this.chatToggleBtn.innerHTML = '<span style="font-size:24px;">💬</span>';
+            this.chatToggleBtn.appendChild(this.chatBadge);
+            this.unreadCount = 0;
+            this.chatBadge.style.display = 'none';
+            this.chatMessagesDiv.scrollTop = this.chatMessagesDiv.scrollHeight;
+            this.chatInput.focus();
+        } else {
+            this.chatContainer.style.display = 'none';
+        }
+    }
+
+    appendChatMessage(username, message) {
+        if (!this.chatMessagesDiv) return;
+        
+        const msgLine = document.createElement('div');
+        msgLine.style.wordBreak = 'break-word';
+        
+        const nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = 'bold';
+        nameSpan.style.color = username === 'Hệ thống' ? '#ffaa00' : '#88ccff';
+        nameSpan.innerText = `[${username}]: `;
+        
+        const textSpan = document.createElement('span');
+        textSpan.innerText = message;
+        
+        msgLine.appendChild(nameSpan);
+        msgLine.appendChild(textSpan);
+        
+        this.chatMessagesDiv.appendChild(msgLine);
+        this.chatMessagesDiv.scrollTop = this.chatMessagesDiv.scrollHeight;
+        
+        // Show unread badge if chat is closed
+        if (!this.chatOpen && this.chatBadge && username !== 'Hệ thống') {
+            this.unreadCount++;
+            this.chatBadge.innerText = this.unreadCount > 9 ? '9+' : this.unreadCount;
+            this.chatBadge.style.display = 'flex';
+        }
+    }
+
     createLeaderboardUI() {
         // Simple Leaderboard on the left, below cleanliness
         const lX = 20;
@@ -2327,31 +3072,55 @@ class EcoTycoon extends Phaser.Scene {
         bg.lineStyle(4, 0x4682b4);
         bg.strokeRoundedRect(px, py, pw, ph, 16);
         
-        const title = this.add.text(this.cameras.main.width / 2, py + 40, 'CHỌN THỜI GIAN TRẬN ĐẤU', { font: 'bold 24px Inter', fill: '#4682b4' }).setOrigin(0.5);
-        
-        this.matchSetupMenu.add([this.matchSetupOverlay, bg, title]);
-        
-        const durations = [
-            { label: '15 Phút', val: 15 * 60 },
-            { label: '30 Phút', val: 30 * 60 },
-            { label: '60 Phút', val: 60 * 60 },
-            { label: '120 Phút', val: 120 * 60 }
-        ];
-        
-        durations.forEach((d, idx) => {
-            const btnBg = this.add.graphics();
-            btnBg.fillStyle(0x32cd32, 1);
-            const btnX = this.cameras.main.width / 2 - 100;
-            const btnY = py + 100 + idx * 55;
-            btnBg.fillRoundedRect(btnX, btnY, 200, 40, 8);
+        this.matchSetupMenu.add([this.matchSetupOverlay, bg]);
+
+        if (this.gameMode === 'multi' && this.myIndex !== 0) {
+            // Guest View
+            const title = this.add.text(this.cameras.main.width / 2, py + 150, 'ĐANG CHỜ CHỦ PHÒNG\nCHỌN THỜI GIAN...', { font: 'bold 24px Inter', fill: '#4682b4', align: 'center' }).setOrigin(0.5);
+            this.matchSetupMenu.add(title);
+        } else {
+            // Host or Single Player View
+            const title = this.add.text(this.cameras.main.width / 2, py + 40, 'CHỌN THỜI GIAN TRẬN ĐẤU', { font: 'bold 24px Inter', fill: '#4682b4' }).setOrigin(0.5);
+            this.matchSetupMenu.add(title);
             
-            const btnTxt = this.add.text(this.cameras.main.width / 2, btnY + 20, d.label, { font: 'bold 18px Inter', fill: '#ffffff' }).setOrigin(0.5);
-            const hitArea = this.add.rectangle(this.cameras.main.width / 2, btnY + 20, 200, 40, 0x0, 0).setInteractive({ useHandCursor: true });
+            const durations = [
+                { label: '15 Phút', val: 15 * 60 },
+                { label: '30 Phút', val: 30 * 60 },
+                { label: '60 Phút', val: 60 * 60 },
+                { label: '120 Phút', val: 120 * 60 }
+            ];
             
-            hitArea.on('pointerdown', () => this.startMatch(d.val));
-            
-            this.matchSetupMenu.add([btnBg, btnTxt, hitArea]);
-        });
+            durations.forEach((d, idx) => {
+                const btnBg = this.add.graphics();
+                btnBg.fillStyle(0x32cd32, 1);
+                const btnX = this.cameras.main.width / 2 - 100;
+                const btnY = py + 100 + idx * 55;
+                btnBg.fillRoundedRect(btnX, btnY, 200, 40, 8);
+                
+                const btnTxt = this.add.text(this.cameras.main.width / 2, btnY + 20, d.label, { font: 'bold 18px Inter', fill: '#ffffff' }).setOrigin(0.5);
+                const hitArea = this.add.rectangle(this.cameras.main.width / 2, btnY + 20, 200, 40, 0x0, 0).setInteractive({ useHandCursor: true });
+                
+                hitArea.on('pointerdown', () => {
+                    if (this.gameMode === 'multi') {
+                        // Gửi sự kiện start_match nhiều lần để đảm bảo các Guest (đang load) cũng nhận được
+                        for (let i = 0; i < 5; i++) {
+                            this.time.delayedCall(i * 1000, () => {
+                                if (this.roomChannel) {
+                                    this.roomChannel.send({
+                                        type: 'broadcast',
+                                        event: 'start_match',
+                                        payload: { duration: d.val }
+                                    });
+                                }
+                            });
+                        }
+                    }
+                    this.startMatch(d.val);
+                });
+                
+                this.matchSetupMenu.add([btnBg, btnTxt, hitArea]);
+            });
+        }
     }
 
     startMatch(seconds) {
@@ -2360,12 +3129,14 @@ class EcoTycoon extends Phaser.Scene {
         this.gameState = 'PLAYING';
         this.matchSetupMenu.setVisible(false);
         
-        // Setup dynamic specialized bots
-        this.bots = [
-            { name: 'Khu 2 (Nga)', score: 0, specialty: 'organic', aggressiveness: 1.2 },
-            { name: 'Khu 3 (Tom)', score: 0, specialty: 'plastic', aggressiveness: 1.0 },
-            { name: 'Khu 4 (Chen)', score: 0, specialty: 'metal', aggressiveness: 0.9 }
-        ];
+        // Setup dynamic specialized bots (ONLY in Single Player)
+        if (this.gameMode !== 'multi') {
+            this.bots = [
+                { name: 'Khu 2 (Nga)', score: 0, specialty: 'organic', aggressiveness: 1.2 },
+                { name: 'Khu 3 (Tom)', score: 0, specialty: 'plastic', aggressiveness: 1.0 },
+                { name: 'Khu 4 (Chen)', score: 0, specialty: 'metal', aggressiveness: 0.9 }
+            ];
+        }
         
         this.updateLeaderboard();
         this.updateHUD();
@@ -2378,7 +3149,7 @@ class EcoTycoon extends Phaser.Scene {
         const playerScore = this.cleanliness * 10 + this.money * 0.1 + this.ecoPoints * 0.5;
         
         const allPlayers = [
-            { name: 'KHU 1 (BẠN)', score: playerScore, isPlayer: true },
+            { name: 'BẠN', score: playerScore, isPlayer: true },
             ...this.bots
         ];
         
@@ -2389,7 +3160,7 @@ class EcoTycoon extends Phaser.Scene {
         allPlayers.forEach((p, idx) => {
             if (idx < 4 && this.leaderboardTexts[idx]) {
                 let color = p.isPlayer ? '#00ff00' : '#ffffff';
-                let icon = p.isPlayer ? '👤' : botIcons[p.specialty];
+                let icon = p.isPlayer ? '👤' : (this.gameMode === 'multi' ? '🌐' : botIcons[p.specialty]);
                 this.leaderboardTexts[idx].setText(`${idx + 1}. ${icon} ${p.name}: ${Math.floor(p.score)} điểm`).setFill(color);
             }
         });
@@ -2899,6 +3670,14 @@ class EcoTycoon extends Phaser.Scene {
                     if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) < 50) {
                         this.heldTrashArray.push(t.getData('type'));
                         
+                        if (this.gameMode === 'multi') {
+                            this.roomChannel.send({
+                                type: 'broadcast',
+                                event: 'trash_picked',
+                                payload: { id: t.getData('id') }
+                            });
+                        }
+                        
                         const variantKey = t.getData('variantKey') || t.texture.key;
                         const icon = this.add.image(this.player.x, this.player.y - 50 - (this.heldTrashArray.length - 1) * 20, variantKey).setScale(0.08).setDepth(this.player.depth + 1);
                         this.heldTrashIcons.push(icon);
@@ -2978,50 +3757,24 @@ class EcoTycoon extends Phaser.Scene {
 
         // Match Timer Update
         if (this.gameMode === 'multi') {
-            const elapsedS = delta / 1000;
-            this.matchTimer -= elapsedS;
-            
-            const m = Math.max(0, Math.floor(this.matchTimer / 60));
-            const s = Math.max(0, Math.floor(this.matchTimer % 60));
-            this.matchTimerText.setText(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
-            
-            if (this.matchTimer <= 0) {
-                this.endMatch();
-                return;
-            }
-
-            // Leaderboard Update
-            this.leaderboardTimer += delta;
-            if (this.leaderboardTimer > 1000) {
-                this.leaderboardTimer = 0;
+            if (this.matchDuration !== Infinity) {
+                const elapsedS = delta / 1000;
+                this.matchTimer -= elapsedS;
                 
-                const progress = 1 - (this.matchTimer / this.matchDuration);
-
-                this.bots.forEach((b, idx) => {
-                    const simulatedLevel = 1 + progress * 4; // Scales from 1 to 5
-                    const trashCount = Math.random() < 0.5 ? 1 : 2; 
-
-                    for(let i=0; i<trashCount; i++) {
-                        const trash = TRASH_TYPES[Math.floor(Math.random() * TRASH_TYPES.length)].type;
-                        let gainedScore = 4 * simulatedLevel; // Basic processing score
-                        let cleanRate = 0.5;
-
-                        if (trash === b.specialty && Math.random() < 0.85 * b.aggressiveness) {
-                            gainedScore = 21 * simulatedLevel; // Optimal match score
-                            cleanRate = 2.0;
-                        } else if (Math.random() < 0.15 * b.aggressiveness) {
-                            gainedScore = 21 * simulatedLevel; // Lucky non-specialty match
-                            cleanRate = 1.0;
-                        }
-
-                        b.score += gainedScore * (0.9 + Math.random() * 0.2); // Add slight variance
-                        b.cleanliness = Math.min(100, (b.cleanliness || 0) + cleanRate * CONFIG.CLEAN_RATE_MULTIPLIER * 5);
-                    }
-                    
-                    this.updateZoneMask(idx + 1, b.cleanliness || 0);
-                });
-                this.updateLeaderboard();
+                const m = Math.max(0, Math.floor(this.matchTimer / 60));
+                const s = Math.max(0, Math.floor(this.matchTimer % 60));
+                this.matchTimerText.setText(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+                
+                if (this.matchTimer <= 0) {
+                    this.endMatch();
+                    return;
+                }
+            } else {
+                this.matchTimerText.setText(`VÔ HẠN`);
             }
+
+            // Real network players don't need local simulation
+            // Leaderboard and Mask updates are handled by sync_stats events
         }
 
         // Minigame Loop
@@ -3262,37 +4015,75 @@ class EcoTycoon extends Phaser.Scene {
         this.updateHUD();
     }
 
-    updateZoneMask(zoneIndex, cleanlinessScore) {
-        const zone = this.zones[zoneIndex];
-        const zv = this.zoneVisuals[zoneIndex];
-        const tw = CONFIG.TILE_WIDTH * zone.gridScale;
-        const maxRadius = CONFIG.GRID_SIZE * tw * 1.5;
-        
-        const stageProgress = (from, to) => {
-            if (cleanlinessScore <= from) return 0;
-            if (cleanlinessScore >= to) return 1;
-            return (cleanlinessScore - from) / (to - from);
-        };
-        
-        const recRad = maxRadius * stageProgress(0, 100 / 3);
-        const thrRad = maxRadius * stageProgress(100 / 3, 200 / 3);
-        const clnRad = maxRadius * stageProgress(200 / 3, 100);
-        
-        zv.recoveryMaskGraphics.clear();
-        zv.recoveryMaskGraphics.fillStyle(0xffffff);
-        zv.recoveryMaskGraphics.fillCircle(zone.cx, zone.cy, recRad);
-
-        zv.thrivingMaskGraphics.clear();
-        zv.thrivingMaskGraphics.fillStyle(0xffffff);
-        zv.thrivingMaskGraphics.fillCircle(zone.cx, zone.cy, thrRad);
-
-        zv.cleanMaskGraphics.clear();
-        zv.cleanMaskGraphics.fillStyle(0xffffff);
-        zv.cleanMaskGraphics.fillCircle(zone.cx, zone.cy, clnRad);
-    }
-
     updateMask() {
-        this.updateZoneMask(0, this.cleanliness);
+        const maxRadiusSingle = CONFIG.GRID_SIZE * CONFIG.TILE_WIDTH * this.islandGridScale * 1.5;
+        const maxRadiusMulti = (CONFIG.GRID_SIZE / 2) * CONFIG.TILE_WIDTH * this.islandGridScale * 1.5; // smaller max radius for quadrants
+        
+        this.recoveryMaskGraphics.clear();
+        this.thrivingMaskGraphics.clear();
+        this.cleanMaskGraphics.clear();
+
+        const drawStage = (graphics, cx, cy, score, maxRad) => {
+            const stageProgress = (from, to) => {
+                if (score <= from) return 0;
+                if (score >= to) return 1;
+                return (score - from) / (to - from);
+            };
+            
+            const rad = maxRad * stageProgress(0, 100); // simplify: just grow based on score
+            // For proper visual stages:
+            const recRad = maxRad * stageProgress(0, 100 / 3);
+            const thrRad = maxRad * stageProgress(100 / 3, 200 / 3);
+            const clnRad = maxRad * stageProgress(200 / 3, 100);
+            
+            if (graphics === this.recoveryMaskGraphics && recRad > 0) {
+                graphics.fillStyle(0xffffff);
+                graphics.fillCircle(cx, cy, recRad);
+            }
+            if (graphics === this.thrivingMaskGraphics && thrRad > 0) {
+                graphics.fillStyle(0xffffff);
+                graphics.fillCircle(cx, cy, thrRad);
+            }
+            if (graphics === this.cleanMaskGraphics && clnRad > 0) {
+                graphics.fillStyle(0xffffff);
+                graphics.fillCircle(cx, cy, clnRad);
+            }
+        };
+
+        if (this.gameMode === 'single') {
+            const cx = this.cameras.main.width / 2;
+            const cy = 380;
+            drawStage(this.recoveryMaskGraphics, cx, cy, this.cleanliness, maxRadiusSingle);
+            drawStage(this.thrivingMaskGraphics, cx, cy, this.cleanliness, maxRadiusSingle);
+            drawStage(this.cleanMaskGraphics, cx, cy, this.cleanliness, maxRadiusSingle);
+        } else {
+            // Multi: Draw 4 circles
+            const tw = CONFIG.TILE_WIDTH * this.islandGridScale;
+            const th = CONFIG.TILE_HEIGHT * this.islandGridScale;
+            
+            const getGridPos = (gx, gy) => {
+                return {
+                    x: this.islandStartX + (gx - gy) * (tw / 2),
+                    y: this.islandStartY + (gx + gy) * (th / 2)
+                };
+            };
+            
+            // Centers of 4 quadrants
+            const centers = [
+                getGridPos(2, 2),
+                getGridPos(8, 2),
+                getGridPos(2, 8),
+                getGridPos(8, 8)
+            ];
+            
+            for (let i = 0; i < 4; i++) {
+                let score = this.playerCleanliness[i] || 0;
+                if (i === this.myIndex) score = this.cleanliness; // local player uses exact score
+                drawStage(this.recoveryMaskGraphics, centers[i].x, centers[i].y, score, maxRadiusMulti);
+                drawStage(this.thrivingMaskGraphics, centers[i].x, centers[i].y, score, maxRadiusMulti);
+                drawStage(this.cleanMaskGraphics, centers[i].x, centers[i].y, score, maxRadiusMulti);
+            }
+        }
     }
 
     triggerGameOver(reason) {
@@ -3372,7 +4163,7 @@ const config = {
         height: 1080
     },
     backgroundColor: '#05101a',
-    scene: [Preloader, LoginScene, MainMenuScene, LevelSelectScene, EcoTycoon]
+    scene: [Preloader, LoginScene, MainMenuScene, LevelSelectScene, MatchmakingScene, EcoTycoon]
 };
 
 const game = new Phaser.Game(config);
