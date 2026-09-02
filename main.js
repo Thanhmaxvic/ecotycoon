@@ -881,7 +881,7 @@ class EcoTycoon extends Phaser.Scene {
 
     setupPlayer() {
         const startX = this.islandStartX;
-        const startY = this.islandStartY + (150 * this.islandGridScale);
+        const startY = this.islandStartY + (550 * this.islandGridScale);
         
         this.playerInteractionRing = this.add.ellipse(startX, startY + 30 * this.islandGridScale, 104 * this.islandGridScale, 28 * this.islandGridScale, 0x32cd32, 0.22)
             .setStrokeStyle(3, 0x9cff75, 0.75)
