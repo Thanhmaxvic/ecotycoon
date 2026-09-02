@@ -33,13 +33,13 @@ const ROBOT_UPGRADES = [
 ];
 
 const QUIZ_QUESTIONS = [
-    { q: "Khí nhà kính nào có khả năng giữ nhiệt lớn nhất trên mỗi phân tử?", options: ["CO2", "Methane (CH4)", "CFCs", "N2O"], ans: 2 },
+    { q: "Khí nhà kính nào có khả năng giữ nhiệt mạnh nhất?", options: ["CO2", "Methane (CH4)", "CFCs", "N2O"], ans: 2 },
     { q: "Hiệp định Paris về biến đổi khí hậu nhằm mục tiêu giữ mức tăng nhiệt độ toàn cầu dưới bao nhiêu độ C?", options: ["1.5°C", "2.0°C", "2.5°C", "3.0°C"], ans: 1 },
     { q: "Hiện tượng 'tẩy trắng san hô' chủ yếu do nguyên nhân nào?", options: ["Ô nhiễm nhựa", "Nhiệt độ nước biển tăng", "Đánh bắt quá mức", "Rò rỉ dầu"], ans: 1 },
-    { q: "Tài nguyên nào sau đây không thể phục hồi?", options: ["Đất canh tác", "Nước ngọt", "Than đá", "Rừng nguyên sinh"], ans: 2 },
+    { q: "Tài nguyên nào sau đây không thể tái tạo?", options: ["Đất canh tác", "Nước ngọt", "Than đá", "Rừng nguyên sinh"], ans: 2 },
     { q: "Công nghệ 'Thu hồi và lưu trữ carbon' (CCS) nhằm mục đích gì?", options: ["Lọc nước biển", "Tái chế nhựa", "Giảm phát thải CO2", "Tạo năng lượng gió"], ans: 2 },
     { q: "Rác thải điện tử (E-waste) chứa nhiều kim loại nặng độc hại nào sau đây?", options: ["Sắt và Nhôm", "Đồng và Kẽm", "Chì và Thủy ngân", "Canxi và Kali"], ans: 2 },
-    { q: "Vi vi nhựa (Microplastics) có kích thước dưới bao nhiêu mm?", options: ["5mm", "10mm", "1mm", "20mm"], ans: 0 }
+    { q: "Hạt vi nhựa (Microplastics) có kích thước dưới bao nhiêu mm?", options: ["5mm", "10mm", "1mm", "20mm"], ans: 0 }
 ];
 
 const DECOR_TYPES = [
@@ -52,11 +52,11 @@ const DECOR_TYPES = [
 
 const BUILDING_TYPES = [
     { key: 'solar_panel', name: 'Pin Mặt Trời', cost: 100, cleanRate: 0.5, incomeRate: 0.5, ecoRate: 0.5, isProcessor: false, unlockReq: null },
-    { key: 'wind_turbine', name: 'Năng Lượng Gió', cost: 200, cleanRate: 1, incomeRate: 1, ecoRate: 1.0, isProcessor: false, unlockReq: null },
+    { key: 'wind_turbine', name: 'Tua-bin Gió', cost: 200, cleanRate: 1, incomeRate: 1, ecoRate: 1.0, isProcessor: false, unlockReq: null },
     { key: 'greenhouse', name: 'TT Nghiên Cứu', cost: 300, cleanRate: 1.5, incomeRate: 1.5, ecoRate: 2.0, isProcessor: false, unlockReq: null },
-    { key: 'organic_composter_l1', name: 'Ủ Phân', cost: 800, cleanRate: 3.0, incomeRate: 1.0, ecoRate: 1.0, isProcessor: true, processType: 'organic', unlockReq: null, maxKey: 'organic_composter_max_new' },
+    { key: 'organic_composter_l1', name: 'Máy Ủ Phân', cost: 800, cleanRate: 3.0, incomeRate: 1.0, ecoRate: 1.0, isProcessor: true, processType: 'organic', unlockReq: null, maxKey: 'organic_composter_max_new' },
     { key: 'plastic_recycler_l1', name: 'Tái Chế Nhựa', cost: 1200, cleanRate: 4.5, incomeRate: 1.5, ecoRate: 1.5, isProcessor: true, processType: 'plastic', unlockReq: 'plastic', maxKey: 'plastic_recycler_max' },
-    { key: 'metal_recycler_l1', name: 'Tách Kim Loại', cost: 2500, cleanRate: 7.0, incomeRate: 2.5, ecoRate: 2.0, isProcessor: true, processType: 'metal', unlockReq: 'metal', maxKey: 'metal_recycler_max_new' },
+    { key: 'metal_recycler_l1', name: 'Tái Chế Kim Loại', cost: 2500, cleanRate: 7.0, incomeRate: 2.5, ecoRate: 2.0, isProcessor: true, processType: 'metal', unlockReq: 'metal', maxKey: 'metal_recycler_max_new' },
     { key: 'circuit_recycler_l1', name: 'Tái Chế Điện Tử', cost: 2200, cleanRate: 8.0, incomeRate: 3.5, ecoRate: 3.0, isProcessor: true, processType: 'electronic', unlockReq: 'electronic', maxKey: 'circuit_recycler_max' }
 ];
 
@@ -64,7 +64,7 @@ const MAP_THEMES = [
     {
         id: 'tropical',
         name: 'Đảo Nhiệt Đới',
-        desc: 'Hòn đảo khởi đầu với một cái cây linh hồn đang héo mòn. Hãy hồi sinh cái cây để cứu lấy hòn đảo.',
+        desc: 'Hòn đảo khởi đầu với Cây Sinh Mệnh đang héo mòn. Hãy hồi sinh cái cây để cứu lấy hòn đảo.',
         textures: { polluted: 'island_tropical_new_polluted', recovery: 'island_tropical_new_recovery', thriving: 'island_tropical_new_thriving', clean: 'island_tropical_new_clean' }
     },
     {
@@ -336,7 +336,7 @@ class LoginScene extends Phaser.Scene {
         const btnGuest = this.add.graphics();
         btnGuest.fillStyle(0x555555, 1);
         btnGuest.fillRoundedRect(cx - 150, cy + 100, 300, 50, 10);
-        this.add.text(cx, cy + 125, 'CHƠI KHÁCH', { font: 'bold 18px Inter', fill: '#fff' }).setOrigin(0.5);
+        this.add.text(cx, cy + 125, 'CHẾ ĐỘ KHÁCH', { font: 'bold 18px Inter', fill: '#fff' }).setOrigin(0.5);
         this.add.rectangle(cx, cy + 125, 300, 50, 0x0, 0).setInteractive({ useHandCursor: true })
             .on('pointerdown', () => {
                 localStorage.setItem('eco_username', 'Guest_' + Math.floor(Math.random() * 1000));
@@ -2014,7 +2014,7 @@ class EcoTycoon extends Phaser.Scene {
         const btn1Bg = this.add.graphics();
         btn1Bg.fillStyle(0x32cd32, 1);
         btn1Bg.fillRoundedRect(px - 320, py - 20, 300, 150, 16);
-        const btn1Txt = this.add.text(px - 170, py + 55, 'HỨNG RÁC\n(Phân loại đất)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
+        const btn1Txt = this.add.text(px - 170, py + 55, 'HỨNG RÁC\n(Phân loại rác)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
         const hit1 = this.add.rectangle(px - 170, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
         hit1.on('pointerdown', () => {
             this.minigameSelectionContainer.setVisible(false);
