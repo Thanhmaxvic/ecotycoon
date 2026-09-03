@@ -1222,16 +1222,27 @@ class EcoTycoon extends Phaser.Scene {
                         netPlayer.sprite.flipX = data.flipX;
                         netPlayer.sprite.setDepth(data.depth);
                         
-                        // Update held trash (simple sync: just show number of icons)
-                        if (data.heldTrashCount !== netPlayer.heldTrashIcons.length) {
-                            netPlayer.heldTrashIcons.forEach(i => i.destroy());
+                        // Update held trash using valid texture keys
+                        const heldTypes = data.heldTrashTypes || [];
+                        const currentIcons = netPlayer.heldTrashIcons;
+                        
+                        if (heldTypes.length !== currentIcons.length) {
+                            currentIcons.forEach(i => i.destroy());
                             netPlayer.heldTrashIcons = [];
-                            for(let j=0; j<data.heldTrashCount; j++) {
-                                const icon = this.add.image(data.x, data.y - 50 - j * 20, 'trash_bag').setScale(0.08).setDepth(data.depth + 1);
+                            for (let j = 0; j < heldTypes.length; j++) {
+                                const type = heldTypes[j];
+                                const tInfo = TRASH_TYPES.find(t => t.type === type);
+                                const texKey = tInfo ? tInfo.key : 'trash_organic';
+                                const icon = this.add.image(data.x, data.y - 50 - j * 20, texKey).setScale(0.08).setDepth(data.depth + 1);
                                 netPlayer.heldTrashIcons.push(icon);
                             }
                         } else {
-                            netPlayer.heldTrashIcons.forEach((icon, j) => {
+                            currentIcons.forEach((icon, j) => {
+                                const type = heldTypes[j];
+                                const tInfo = TRASH_TYPES.find(t => t.type === type);
+                                if (tInfo && icon.texture.key !== tInfo.key) {
+                                    icon.setTexture(tInfo.key);
+                                }
                                 this.tweens.add({ targets: icon, x: data.x, y: data.y - 50 - j * 20, duration: 100 });
                                 icon.setDepth(data.depth + 1);
                             });
@@ -1256,6 +1267,7 @@ class EcoTycoon extends Phaser.Scene {
                     const netIndex = this.multiPlayers.findIndex(p => p.id === data.id);
                     if (netIndex !== -1) {
                         this.playerCleanliness[netIndex] = data.cleanliness;
+                        this.updateMask();
                         // Check if bots is initialized before accessing
                         if (this.bots) {
                             const botObj = this.bots.find(b => b.originalIndex === netIndex);
@@ -1349,7 +1361,8 @@ class EcoTycoon extends Phaser.Scene {
                                         y: this.player.y,
                                         flipX: this.player.flipX,
                                         depth: this.player.depth,
-                                        heldTrashCount: this.heldTrashArray.length
+                                        heldTrashCount: this.heldTrashArray.length,
+                                        heldTrashTypes: this.heldTrashArray
                                     }
                                 });
                             }
@@ -2191,7 +2204,9 @@ class EcoTycoon extends Phaser.Scene {
             });
 
             this.time.delayedCall(2000, () => {
-                this.endMatch();
+                if (this.gameMode !== 'multi') {
+                    this.endMatch();
+                }
             });
         }
     }
@@ -3748,7 +3763,9 @@ class EcoTycoon extends Phaser.Scene {
 
             if (this.cleanliness >= 100 && oldCleanliness < 100) {
                 window.ProgressLogger.logProgress('win_cleanliness_100');
-                this.endMatch();
+                if (this.gameMode !== 'multi') {
+                    this.endMatch();
+                }
             }
         }
 
@@ -4017,7 +4034,7 @@ class EcoTycoon extends Phaser.Scene {
 
     updateMask() {
         const maxRadiusSingle = CONFIG.GRID_SIZE * CONFIG.TILE_WIDTH * this.islandGridScale * 1.5;
-        const maxRadiusMulti = (CONFIG.GRID_SIZE / 2) * CONFIG.TILE_WIDTH * this.islandGridScale * 1.5; // smaller max radius for quadrants
+        const maxRadiusMulti = 2.5 * CONFIG.TILE_WIDTH * this.islandGridScale; // Appropriate max radius for 1 player region (~550px)
         
         this.recoveryMaskGraphics.clear();
         this.thrivingMaskGraphics.clear();
@@ -4030,8 +4047,6 @@ class EcoTycoon extends Phaser.Scene {
                 return (score - from) / (to - from);
             };
             
-            const rad = maxRad * stageProgress(0, 100); // simplify: just grow based on score
-            // For proper visual stages:
             const recRad = maxRad * stageProgress(0, 100 / 3);
             const thrRad = maxRad * stageProgress(100 / 3, 200 / 3);
             const clnRad = maxRad * stageProgress(200 / 3, 100);
@@ -4057,7 +4072,7 @@ class EcoTycoon extends Phaser.Scene {
             drawStage(this.thrivingMaskGraphics, cx, cy, this.cleanliness, maxRadiusSingle);
             drawStage(this.cleanMaskGraphics, cx, cy, this.cleanliness, maxRadiusSingle);
         } else {
-            // Multi: Draw 4 circles
+            // Multi: Draw 3 region circles matching player start/region centers
             const tw = CONFIG.TILE_WIDTH * this.islandGridScale;
             const th = CONFIG.TILE_HEIGHT * this.islandGridScale;
             
@@ -4068,15 +4083,14 @@ class EcoTycoon extends Phaser.Scene {
                 };
             };
             
-            // Centers of 4 quadrants
+            // Centers of the 3 player regions: Index 0: Left (2,8), Index 1: Right (8,2), Index 2: Bottom (8,8)
             const centers = [
-                getGridPos(2, 2),
-                getGridPos(8, 2),
                 getGridPos(2, 8),
+                getGridPos(8, 2),
                 getGridPos(8, 8)
             ];
             
-            for (let i = 0; i < 4; i++) {
+            for (let i = 0; i < 3; i++) {
                 let score = this.playerCleanliness[i] || 0;
                 if (i === this.myIndex) score = this.cleanliness; // local player uses exact score
                 drawStage(this.recoveryMaskGraphics, centers[i].x, centers[i].y, score, maxRadiusMulti);
