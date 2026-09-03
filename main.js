@@ -33,13 +33,42 @@ const ROBOT_UPGRADES = [
 ];
 
 const QUIZ_QUESTIONS = [
+    // === CÂU HỎI GỐC (7 câu) ===
     { q: "Khí nhà kính nào có khả năng giữ nhiệt mạnh nhất?", options: ["CO2", "Methane (CH4)", "CFCs", "N2O"], ans: 2 },
     { q: "Hiệp định Paris về biến đổi khí hậu nhằm mục tiêu giữ mức tăng nhiệt độ toàn cầu dưới bao nhiêu độ C?", options: ["1.5°C", "2.0°C", "2.5°C", "3.0°C"], ans: 1 },
     { q: "Hiện tượng 'tẩy trắng san hô' chủ yếu do nguyên nhân nào?", options: ["Ô nhiễm nhựa", "Nhiệt độ nước biển tăng", "Đánh bắt quá mức", "Rò rỉ dầu"], ans: 1 },
     { q: "Tài nguyên nào sau đây không thể tái tạo?", options: ["Đất canh tác", "Nước ngọt", "Than đá", "Rừng nguyên sinh"], ans: 2 },
     { q: "Công nghệ 'Thu hồi và lưu trữ carbon' (CCS) nhằm mục đích gì?", options: ["Lọc nước biển", "Tái chế nhựa", "Giảm phát thải CO2", "Tạo năng lượng gió"], ans: 2 },
     { q: "Rác thải điện tử (E-waste) chứa nhiều kim loại nặng độc hại nào sau đây?", options: ["Sắt và Nhôm", "Đồng và Kẽm", "Chì và Thủy ngân", "Canxi và Kali"], ans: 2 },
-    { q: "Hạt vi nhựa (Microplastics) có kích thước dưới bao nhiêu mm?", options: ["5mm", "10mm", "1mm", "20mm"], ans: 0 }
+    { q: "Hạt vi nhựa (Microplastics) có kích thước dưới bao nhiêu mm?", options: ["5mm", "10mm", "1mm", "20mm"], ans: 0 },
+
+    // === CÁC LOẠI RÁC (5 câu) ===
+    { q: "Rác hữu cơ là loại rác nào sau đây?", options: ["Chai nhựa, túi nilon", "Thức ăn thừa, vỏ trái cây", "Pin cũ, bóng đèn hỏng", "Bo mạch, dây điện"], ans: 1 },
+    { q: "Loại rác nào mất thời gian phân hủy tự nhiên lâu nhất?", options: ["Vỏ chuối (2-5 tuần)", "Giấy báo (2-6 tuần)", "Chai nhựa (450-1000 năm)", "Vỏ lon nhôm (80-200 năm)"], ans: 2 },
+    { q: "Rác thải y tế (kim tiêm, bông băng dính máu) thuộc loại rác gì?", options: ["Rác sinh hoạt thông thường", "Rác tái chế", "Rác thải nguy hại", "Rác hữu cơ"], ans: 2 },
+    { q: "Pin đã qua sử dụng nên được xử lý như thế nào?", options: ["Vứt chung với rác sinh hoạt", "Thu gom riêng tại điểm thu hồi", "Chôn lấp dưới đất", "Đốt cùng rác thông thường"], ans: 1 },
+    { q: "Loại rác nào sau đây có thể ủ thành phân compost?", options: ["Túi nilon", "Vỏ rau, lá cây, vỏ trứng", "Chai thủy tinh", "Hộp xốp đựng thức ăn"], ans: 1 },
+
+    // === KHÍ Ô NHIỄM (5 câu) ===
+    { q: "Khí SO₂ (lưu huỳnh dioxide) là nguyên nhân chính gây ra hiện tượng gì?", options: ["Hiệu ứng nhà kính", "Mưa axit", "Thủng tầng ozone", "Sương mù quang hóa"], ans: 1 },
+    { q: "Khí CO (carbon monoxide) gây nguy hiểm cho con người vì?", options: ["Gây kích ứng da", "Làm mất thính giác", "Gắn kết với hemoglobin, gây ngạt", "Gây đau dạ dày"], ans: 2 },
+    { q: "Tầng ozone trong khí quyển bị phá hủy chủ yếu bởi chất nào?", options: ["CO₂", "SO₂", "CFCs (Chlorofluorocarbons)", "CH₄ (Methane)"], ans: 2 },
+    { q: "Khí NO₂ (nitrogen dioxide) chủ yếu phát ra từ nguồn nào?", options: ["Cây xanh quang hợp", "Khói xe cơ giới và nhà máy", "Núi lửa phun trào", "Ao hồ tự nhiên"], ans: 1 },
+    { q: "PM2.5 là gì?", options: ["Một loại khí nhà kính", "Hạt bụi mịn có đường kính ≤ 2.5 micromet", "Tên một hóa chất công nghiệp", "Chỉ số đo nhiệt độ không khí"], ans: 1 },
+
+    // === PHƯƠNG ÁN XỬ LÝ RÁC (5 câu) ===
+    { q: "Nguyên tắc 3R trong bảo vệ môi trường là gì?", options: ["Reduce, Reuse, Recycle", "Remove, Replace, Restore", "Reject, Repair, Return", "Reduce, Repair, Rebuild"], ans: 0 },
+    { q: "Phương pháp xử lý rác hữu cơ thân thiện với môi trường nhất là gì?", options: ["Đốt bỏ", "Chôn lấp trực tiếp", "Ủ phân sinh học (compost)", "Thả xuống biển"], ans: 2 },
+    { q: "Chôn lấp rác không hợp vệ sinh có thể gây ra hậu quả gì?", options: ["Tăng độ phì nhiêu đất", "Ô nhiễm nước ngầm", "Tạo ra năng lượng sạch", "Giảm hiệu ứng nhà kính"], ans: 1 },
+    { q: "Lò đốt rác công nghiệp hiện đại cần có thiết bị gì để giảm ô nhiễm?", options: ["Quạt gió công suất lớn", "Hệ thống lọc khí thải", "Máy phát điện diesel", "Bể chứa nước thải"], ans: 1 },
+    { q: "Tái chế 1 tấn giấy có thể cứu được khoảng bao nhiêu cây xanh?", options: ["5 cây", "10 cây", "17 cây", "30 cây"], ans: 2 },
+
+    // === BẢO VỆ MÔI TRƯỜNG (5 câu) ===
+    { q: "Rừng Amazon thường được gọi là gì?", options: ["Kho vàng xanh", "Lá phổi xanh của Trái Đất", "Vườn địa đàng", "Rừng ma thuật"], ans: 1 },
+    { q: "Nguồn năng lượng tái tạo nào được sử dụng phổ biến nhất trên thế giới?", options: ["Năng lượng gió", "Năng lượng mặt trời", "Thủy điện", "Năng lượng địa nhiệt"], ans: 2 },
+    { q: "Một chiếc túi nilon mất khoảng bao lâu để phân hủy trong tự nhiên?", options: ["1-5 năm", "10-50 năm", "100-200 năm", "500-1000 năm"], ans: 3 },
+    { q: "Ngày Môi trường Thế giới được tổ chức vào ngày nào hàng năm?", options: ["22 tháng 4", "5 tháng 6", "16 tháng 9", "1 tháng 12"], ans: 1 },
+    { q: "Biện pháp nào hiệu quả nhất để giảm phát thải khí nhà kính trên quy mô toàn cầu?", options: ["Trồng thêm cây xanh", "Hạn chế sử dụng điều hòa", "Chuyển đổi sang năng lượng tái tạo", "Giảm sử dụng túi nilon"], ans: 2 }
 ];
 
 const DECOR_TYPES = [
