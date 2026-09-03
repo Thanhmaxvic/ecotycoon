@@ -748,6 +748,7 @@ class EcoTycoon extends Phaser.Scene {
         this.playerSpeed = ROBOT_UPGRADES[0].levels[0];
         this.playerCap = ROBOT_UPGRADES[1].levels[0];
         this.heldTrashArray = [];
+        this.heldTrashVariantsArray = [];
         this.heldTrashIcons = [];
         this.placementPreview = null;
         this.placementIndicator = null;
@@ -773,7 +774,35 @@ class EcoTycoon extends Phaser.Scene {
         this.leaderboardTimer = 0;
     }
 
+    addUI(item) {
+        if (!item) return item;
+        if (Array.isArray(item)) {
+            item.forEach(i => this.addUI(i));
+            return item;
+        }
+        if (this.cameras && this.cameras.main) {
+            this.cameras.main.ignore(item);
+        }
+        return item;
+    }
+
+    addWorld(item) {
+        if (!item) return item;
+        if (Array.isArray(item)) {
+            item.forEach(i => this.addWorld(i));
+            return item;
+        }
+        if (this.uiCamera) {
+            this.uiCamera.ignore(item);
+        }
+        return item;
+    }
+
     create() {
+        this.uiCamera = this.cameras.add(0, 0, this.cameras.main.width, this.cameras.main.height);
+        this.uiCamera.setScroll(0, 0);
+        this.uiCamera.setZoom(1);
+
         this.setupAudio();
         this.setupGroups();
         this.setupConstructionVFX();
@@ -833,6 +862,8 @@ class EcoTycoon extends Phaser.Scene {
         this.cleanTerrainGroup = this.add.group();
         this.buildingGroup = this.add.group();
         this.constructionGroup = this.add.group();
+        
+        this.addWorld([this.terrainGroup, this.cleanTerrainGroup, this.buildingGroup, this.constructionGroup]);
     }
 
     setupConstructionVFX() {
@@ -1099,6 +1130,7 @@ class EcoTycoon extends Phaser.Scene {
             if (trashType.type === 'electronic') sc = 0.04 * this.islandGridScale;
             
             const trash = this.add.image(cell.posX, cell.posY - 10, variantKey).setScale(sc).setDepth((cell.x + cell.y) * 10 + 2);
+            this.addWorld(trash);
             trash.setData('type', trashType.type);
             trash.setData('variantKey', variantKey);
             trash.setData('cell', cell);
@@ -1169,10 +1201,9 @@ class EcoTycoon extends Phaser.Scene {
                 if (i !== this.myIndex) {
                     const pos = getGridPos(startPositions[i].x, startPositions[i].y);
                     const netSprite = this.add.image(pos.x, pos.y, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000).setTint(0x8888ff);
-                    
-                    // Add safety check in case this.multiPlayers[i] is undefined for some reason
                     const pName = this.multiPlayers[i] ? this.multiPlayers[i].username : `Guest_${i}`;
                     const netName = this.add.text(pos.x, pos.y - 40, pName, { font: 'bold 14px Inter', fill: '#8888ff' }).setOrigin(0.5).setDepth(1001);
+                    this.addWorld([netSprite, netName]);
                     this.networkPlayers[i] = { sprite: netSprite, text: netName, heldTrashIcons: [] };
                 }
             }
@@ -1192,6 +1223,7 @@ class EcoTycoon extends Phaser.Scene {
         this.player = this.add.image(startPos.x, startPos.y, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000);
         this.player.gridX = myStartGrid.x;
         this.player.gridY = myStartGrid.y;
+        this.addWorld([this.player, this.playerInteractionRing]);
     }
 
     setupNetwork() {
@@ -1222,37 +1254,50 @@ class EcoTycoon extends Phaser.Scene {
                         netPlayer.sprite.flipX = data.flipX;
                         netPlayer.sprite.setDepth(data.depth);
                         
-                        // Update held trash using valid texture keys
-                        const heldTypes = data.heldTrashTypes || [];
+                        // Update held trash using exact variant texture keys
+                        const heldVariants = data.heldTrashVariants || [];
                         const currentIcons = netPlayer.heldTrashIcons;
                         
-                        if (heldTypes.length !== currentIcons.length) {
+                        if (heldVariants.length !== currentIcons.length) {
                             currentIcons.forEach(i => i.destroy());
                             netPlayer.heldTrashIcons = [];
-                            for (let j = 0; j < heldTypes.length; j++) {
-                                const type = heldTypes[j];
-                                const tInfo = TRASH_TYPES.find(t => t.type === type);
-                                const texKey = tInfo ? tInfo.key : 'trash_organic';
-                                const icon = this.add.image(data.x, data.y - 50 - j * 20, texKey).setScale(0.08).setDepth(data.depth + 1);
+                            for (let j = 0; j < heldVariants.length; j++) {
+                                const vKey = heldVariants[j] || 'trash_organic';
+                                const icon = this.add.image(data.x, data.y - 45 - j * 16, vKey)
+                                    .setScale(0.045 * this.islandGridScale)
+                                    .setDepth(data.depth + 1);
                                 netPlayer.heldTrashIcons.push(icon);
                             }
                         } else {
                             currentIcons.forEach((icon, j) => {
-                                const type = heldTypes[j];
-                                const tInfo = TRASH_TYPES.find(t => t.type === type);
-                                if (tInfo && icon.texture.key !== tInfo.key) {
-                                    icon.setTexture(tInfo.key);
+                                const vKey = heldVariants[j];
+                                if (vKey && icon.texture.key !== vKey) {
+                                    icon.setTexture(vKey);
                                 }
-                                this.tweens.add({ targets: icon, x: data.x, y: data.y - 50 - j * 20, duration: 100 });
+                                this.tweens.add({ targets: icon, x: data.x, y: data.y - 45 - j * 16, duration: 100 });
                                 icon.setDepth(data.depth + 1);
                             });
                         }
                     }
                 }
             })
+            .on('broadcast', { event: 'request_game_state' }, () => {
+                if (this.gameState === 'PLAYING') {
+                    this.roomChannel.send({
+                        type: 'broadcast',
+                        event: 'start_match',
+                        payload: { duration: this.matchDuration, matchTimer: this.matchTimer }
+                    });
+                }
+            })
             .on('broadcast', { event: 'start_match' }, (payload) => {
-                if (this.gameState !== 'PLAYING' && payload.payload && payload.payload.duration) {
-                    this.startMatch(payload.payload.duration);
+                if (payload.payload && payload.payload.duration) {
+                    if (this.gameState !== 'PLAYING') {
+                        this.startMatch(payload.payload.duration);
+                    }
+                    if (payload.payload.matchTimer !== undefined) {
+                        this.matchTimer = payload.payload.matchTimer;
+                    }
                 }
             })
             .on('broadcast', { event: 'chat_msg' }, (payload) => {
@@ -1346,6 +1391,13 @@ class EcoTycoon extends Phaser.Scene {
             })
             .subscribe((status) => {
                 if (status === 'SUBSCRIBED') {
+                    // Send request_game_state to check if host already started
+                    this.roomChannel.send({
+                        type: 'broadcast',
+                        event: 'request_game_state',
+                        payload: { id: this.myId }
+                    });
+
                     // Send out movement periodically
                     this.time.addEvent({
                         delay: 100, // 10hz
@@ -1362,7 +1414,8 @@ class EcoTycoon extends Phaser.Scene {
                                         flipX: this.player.flipX,
                                         depth: this.player.depth,
                                         heldTrashCount: this.heldTrashArray.length,
-                                        heldTrashTypes: this.heldTrashArray
+                                        heldTrashTypes: this.heldTrashArray,
+                                        heldTrashVariants: this.heldTrashVariantsArray
                                     }
                                 });
                             }
@@ -1422,41 +1475,41 @@ class EcoTycoon extends Phaser.Scene {
 
     setupUI() {
         // --- Top Left HUD ---
-        const hudBg = this.add.graphics();
+        const hudBg = this.addUI(this.add.graphics());
         hudBg.fillStyle(0x000000, 0.4);
         hudBg.fillRoundedRect(10, 10, 200, 100, 15);
         hudBg.setScrollFactor(0).setDepth(1000);
         
         // Money
-        this.add.circle(30, 30, 15, 0xffcc00).setScrollFactor(0).setDepth(1001);
-        this.add.text(30, 30, '$', { font: 'bold 18px Inter', fill: '#000' }).setOrigin(0.5).setScrollFactor(0).setDepth(1002);
-        this.moneyText = this.add.text(55, 18, `$${Math.floor(this.money)}`, { font: 'bold 22px Inter', fill: '#ffcc00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
+        const mCircle = this.addUI(this.add.circle(30, 30, 15, 0xffcc00).setScrollFactor(0).setDepth(1001));
+        const mTxt = this.addUI(this.add.text(30, 30, '$', { font: 'bold 18px Inter', fill: '#000' }).setOrigin(0.5).setScrollFactor(0).setDepth(1002));
+        this.moneyText = this.addUI(this.add.text(55, 18, `$${Math.floor(this.money)}`, { font: 'bold 22px Inter', fill: '#ffcc00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
         
         // Eco Points
-        this.add.text(30, 65, '🌱', { font: '20px Inter' }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
-        this.ecoPointsText = this.add.text(55, 53, `${Math.floor(this.ecoPoints)}`, { font: 'bold 22px Inter', fill: '#a2ff66', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
+        const ecoIcon = this.addUI(this.add.text(30, 65, '🌱', { font: '20px Inter' }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
+        this.ecoPointsText = this.addUI(this.add.text(55, 53, `${Math.floor(this.ecoPoints)}`, { font: 'bold 22px Inter', fill: '#a2ff66', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
 
         // --- Buff Indicator ---
-        this.buffText = this.add.text(120, 30, 'x2 THU NHẬP!', { font: 'bold 16px Inter', fill: '#00ff00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1002).setVisible(false);
+        this.buffText = this.addUI(this.add.text(120, 30, 'x2 THU NHẬP!', { font: 'bold 16px Inter', fill: '#00ff00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1002).setVisible(false));
         // --- Cleanliness ---
-        this.add.text(20, 120, 'ĐỘ SẠCH:', { font: 'bold 16px Inter', fill: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
-        this.cleanlinessValueText = this.add.text(105, 120, `${Math.floor(this.cleanliness)}%`, { font: 'bold 16px Inter', fill: '#ffcc00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
+        const cleanLbl = this.addUI(this.add.text(20, 120, 'ĐỘ SẠCH:', { font: 'bold 16px Inter', fill: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
+        this.cleanlinessValueText = this.addUI(this.add.text(105, 120, `${Math.floor(this.cleanliness)}%`, { font: 'bold 16px Inter', fill: '#ffcc00', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
         
         // Cleanliness Progress Bar
-        const barBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const barBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         barBg.fillStyle(0x000000, 0.6);
         barBg.fillRoundedRect(20, 145, 180, 15, 8);
         barBg.lineStyle(2, 0xffcc00);
         barBg.strokeRoundedRect(19, 144, 182, 17, 8);
         
-        this.cleanProgressBar = this.add.graphics().setScrollFactor(0).setDepth(1001);
+        this.cleanProgressBar = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1001));
 
         // --- Trash Limit Indicator ---
-        this.add.text(20, 175, 'RÁC TỒN ĐỌNG:', { font: 'bold 14px Inter', fill: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
-        this.trashCountText = this.add.text(140, 175, `0/${CONFIG.MAX_TRASH_ALLOWED}`, { font: 'bold 14px Inter', fill: '#ff4444', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001);
+        const trashLbl = this.addUI(this.add.text(20, 175, 'RÁC TỒN ĐỌNG:', { font: 'bold 14px Inter', fill: '#ffffff', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
+        this.trashCountText = this.addUI(this.add.text(140, 175, `0/${CONFIG.MAX_TRASH_ALLOWED}`, { font: 'bold 14px Inter', fill: '#ff4444', stroke: '#000000', strokeThickness: 4 }).setScrollFactor(0).setDepth(1001));
 
         // --- Top Center Banner ---
-        const bannerBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const bannerBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         bannerBg.fillStyle(0xcd853f, 1);
         bannerBg.fillRoundedRect(this.cameras.main.width / 2 - 100, 15, 200, 60, 10);
         bannerBg.lineStyle(4, 0x8b4513);
@@ -1464,32 +1517,32 @@ class EcoTycoon extends Phaser.Scene {
         
         const bannerTitle = this.gameMode === 'multi' ? 'KHU 1 (BẠN)' : 'ĐẢO SINH THÁI';
         
-        this.add.text(this.cameras.main.width / 2, 30, bannerTitle, {
+        const bTitleTxt = this.addUI(this.add.text(this.cameras.main.width / 2, 30, bannerTitle, {
             font: 'bold 16px Inter',
             fill: '#000000',
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
         
-        this.matchTimerText = this.add.text(this.cameras.main.width / 2, 55, this.gameMode === 'multi' ? '00:00' : 'CHƠI ĐƠN', {
+        this.matchTimerText = this.addUI(this.add.text(this.cameras.main.width / 2, 55, this.gameMode === 'multi' ? '00:00' : 'CHƠI ĐƠN', {
             font: 'bold 22px Inter',
             fill: '#8b0000',
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         // --- Research Button (Top Right) ---
-        const btnResearchBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const btnResearchBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         btnResearchBg.fillStyle(0x4682b4, 1);
         btnResearchBg.fillRoundedRect(this.cameras.main.width - 160, 20, 140, 45, 10);
         btnResearchBg.lineStyle(3, 0x104e8b);
         btnResearchBg.strokeRoundedRect(this.cameras.main.width - 160, 20, 140, 45, 10);
         
-        const btnResearchHitArea = this.add.rectangle(this.cameras.main.width - 90, 42, 140, 45, 0x000, 0)
+        const btnResearchHitArea = this.addUI(this.add.rectangle(this.cameras.main.width - 90, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
-            .setDepth(1001);
+            .setDepth(1001));
             
-        this.add.text(this.cameras.main.width - 90, 42, '🔬 NGHIÊN CỨU', {
+        const btnResearchTxt = this.addUI(this.add.text(this.cameras.main.width - 90, 42, '🔬 NGHIÊN CỨU', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         btnResearchHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
@@ -1497,21 +1550,21 @@ class EcoTycoon extends Phaser.Scene {
         });
 
         // --- Library Button (Top Right, beside Research) ---
-        const btnLibraryBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const btnLibraryBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         btnLibraryBg.fillStyle(0x32cd32, 1);
         btnLibraryBg.fillRoundedRect(this.cameras.main.width - 320, 20, 140, 45, 10);
         btnLibraryBg.lineStyle(3, 0x006400);
         btnLibraryBg.strokeRoundedRect(this.cameras.main.width - 320, 20, 140, 45, 10);
         
-        const btnLibraryHitArea = this.add.rectangle(this.cameras.main.width - 250, 42, 140, 45, 0x000, 0)
+        const btnLibraryHitArea = this.addUI(this.add.rectangle(this.cameras.main.width - 250, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
-            .setDepth(1001);
+            .setDepth(1001));
             
-        this.add.text(this.cameras.main.width - 250, 42, '📚 THƯ VIỆN', {
+        const btnLibraryTxt = this.addUI(this.add.text(this.cameras.main.width - 250, 42, '📚 THƯ VIỆN', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         btnLibraryHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
@@ -1519,21 +1572,21 @@ class EcoTycoon extends Phaser.Scene {
         });
 
         // --- Minigame Button (Top Right, beside Library) ---
-        const btnMinigameBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const btnMinigameBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         btnMinigameBg.fillStyle(0xff8c00, 1);
         btnMinigameBg.fillRoundedRect(this.cameras.main.width - 480, 20, 140, 45, 10);
         btnMinigameBg.lineStyle(3, 0x8b4500);
         btnMinigameBg.strokeRoundedRect(this.cameras.main.width - 480, 20, 140, 45, 10);
         
-        const btnMinigameHitArea = this.add.rectangle(this.cameras.main.width - 410, 42, 140, 45, 0x000, 0)
+        const btnMinigameHitArea = this.addUI(this.add.rectangle(this.cameras.main.width - 410, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
-            .setDepth(1001);
+            .setDepth(1001));
             
-        this.add.text(this.cameras.main.width - 410, 42, '🎮 MINI GAME', {
+        const btnMinigameTxt = this.addUI(this.add.text(this.cameras.main.width - 410, 42, '🎮 MINI GAME', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         btnMinigameHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
@@ -1541,21 +1594,21 @@ class EcoTycoon extends Phaser.Scene {
         });
 
         // --- Quiz Button (Top Right, beside Minigame) ---
-        const btnQuizBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const btnQuizBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         btnQuizBg.fillStyle(0xff00ff, 1);
         btnQuizBg.fillRoundedRect(this.cameras.main.width - 640, 20, 140, 45, 10);
         btnQuizBg.lineStyle(3, 0x8b008b);
         btnQuizBg.strokeRoundedRect(this.cameras.main.width - 640, 20, 140, 45, 10);
         
-        const btnQuizHitArea = this.add.rectangle(this.cameras.main.width - 570, 42, 140, 45, 0x000, 0)
+        const btnQuizHitArea = this.addUI(this.add.rectangle(this.cameras.main.width - 570, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
-            .setDepth(1001);
+            .setDepth(1001));
             
-        this.add.text(this.cameras.main.width - 570, 42, '📝 CÂU HỎI', {
+        const btnQuizTxt = this.addUI(this.add.text(this.cameras.main.width - 570, 42, '📝 CÂU HỎI', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         btnQuizHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
@@ -1563,21 +1616,21 @@ class EcoTycoon extends Phaser.Scene {
         });
 
         // --- Pause / Exit Button (Top Right, beside Quiz) ---
-        const btnExitBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        const btnExitBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(1000));
         btnExitBg.fillStyle(0xdc143c, 1);
         btnExitBg.fillRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
         btnExitBg.lineStyle(3, 0x8b0000);
         btnExitBg.strokeRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
         
-        const btnExitHitArea = this.add.rectangle(this.cameras.main.width - 730, 42, 140, 45, 0x000, 0)
+        const btnExitHitArea = this.addUI(this.add.rectangle(this.cameras.main.width - 730, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
-            .setDepth(1001);
+            .setDepth(1001));
             
-        this.add.text(this.cameras.main.width - 730, 42, '⏸ TẠM DỪNG', {
+        const btnExitTxt = this.addUI(this.add.text(this.cameras.main.width - 730, 42, '⏸ TẠM DỪNG', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001));
 
         btnExitHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
@@ -1585,15 +1638,15 @@ class EcoTycoon extends Phaser.Scene {
         });
 
         // --- Virtual Joystick for Mobile Movement ---
-        this.joystickBase = this.add.circle(150, this.cameras.main.height - 250, 80, 0x000000, 0.4).setScrollFactor(0).setDepth(2000);
+        this.joystickBase = this.addUI(this.add.circle(150, this.cameras.main.height - 250, 80, 0x000000, 0.4).setScrollFactor(0).setDepth(2000));
         this.joystickBase.setStrokeStyle(3, 0xffffff, 0.5);
-        this.joystickThumb = this.add.circle(150, this.cameras.main.height - 250, 40, 0xffffff, 0.8).setScrollFactor(0).setDepth(2001);
+        this.joystickThumb = this.addUI(this.add.circle(150, this.cameras.main.height - 250, 40, 0xffffff, 0.8).setScrollFactor(0).setDepth(2001));
         this.joystickVector = { x: 0, y: 0 };
         this.joystickPointer = null;
         this.isDraggingMap = false;
 
         // --- Build Menu Background ---
-        this.buildMenuBg = this.add.graphics().setScrollFactor(0).setDepth(900);
+        this.buildMenuBg = this.addUI(this.add.graphics().setScrollFactor(0).setDepth(900));
         
         // Mode Tabs
         this.btnTabBuild = this.createTabButton(this.cameras.main.width / 2 - 150, this.cameras.main.height - 145, 'MÁY MÓC', true, () => this.switchMenuMode('build'));
@@ -1668,7 +1721,7 @@ class EcoTycoon extends Phaser.Scene {
             ].forEach((upg, i) => {
                 const x = bgX + 100 + i * 200;
                 const y = bgY + 50;
-                const container = this.add.container(x, y).setDepth(1000).setScrollFactor(0);
+                const container = this.addUI(this.add.container(x, y).setDepth(1000).setScrollFactor(0));
                 
                 const isMax = upg.currentLv >= upg.maxLv;
                 const cost = isMax ? 0 : upg.upgradeData.costs[upg.currentLv - 1];
@@ -1720,7 +1773,7 @@ class EcoTycoon extends Phaser.Scene {
         items.forEach((btn, i) => {
             const x = bgX + 20 + (btnWidth / 2) + i * (btnWidth + padding);
             const y = bgY + 50;
-            const container = this.add.container(x, y).setDepth(1000).setScrollFactor(0);
+            const container = this.addUI(this.add.container(x, y).setDepth(1000).setScrollFactor(0));
             
             const isUnlocked = !btn.unlockReq || this.unlockedTechs.includes(btn.unlockReq);
 
@@ -2297,7 +2350,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createLibraryMenu() {
-        this.libraryMenu = this.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0);
+        this.libraryMenu = this.addUI(this.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0));
         
         this.libraryOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8)
             .setInteractive();
@@ -2398,7 +2451,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createTrashInfoMenu() {
-        this.trashInfoMenu = this.add.container(0, 0).setDepth(4500).setVisible(false).setScrollFactor(0);
+        this.trashInfoMenu = this.addUI(this.add.container(0, 0).setDepth(4500).setVisible(false).setScrollFactor(0));
         this.trashInfoOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.7).setInteractive();
 
         const pw = 450, ph = 280;
@@ -2483,7 +2536,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createExitMenu() {
-        this.exitMenu = this.add.container(0, 0).setDepth(6000).setVisible(false).setScrollFactor(0);
+        this.exitMenu = this.addUI(this.add.container(0, 0).setDepth(6000).setVisible(false).setScrollFactor(0));
         this.exitOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.85).setInteractive();
 
         const pw = 420, ph = 260;
@@ -2533,7 +2586,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createMinigame() {
-        this.minigameMenu = this.add.container(0, 0).setDepth(3500).setVisible(false).setScrollFactor(0);
+        this.minigameMenu = this.addUI(this.add.container(0, 0).setDepth(3500).setVisible(false).setScrollFactor(0));
         this.minigameOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.9).setInteractive();
         
         this.minigameTitle = this.add.text(this.cameras.main.width / 2, 50, 'TRUNG TÂM GIẢI TRÍ', { font: 'bold 32px Inter', fill: '#ff8c00' }).setOrigin(0.5);
@@ -2543,7 +2596,7 @@ class EcoTycoon extends Phaser.Scene {
         this.minigameMenu.add([this.minigameOverlay, this.minigameTitle, this.minigameTimerText, this.minigameScoreText]);
         
         // --- Selection Container ---
-        this.minigameSelectionContainer = this.add.container(0, 0);
+        this.minigameSelectionContainer = this.addUI(this.add.container(0, 0));
         const px = this.cameras.main.width / 2;
         const py = this.cameras.main.height / 2;
         
@@ -2760,7 +2813,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createSeaMinigame() {
-        this.seaMinigameContainer = this.add.container(0, 0).setVisible(false).setDepth(3501);
+        this.seaMinigameContainer = this.addUI(this.add.container(0, 0).setVisible(false).setDepth(3501));
         
         // Ocean background
         this.oceanBg = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x006994, 0.95).setInteractive();
@@ -3071,7 +3124,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createMatchSetupMenu() {
-        this.matchSetupMenu = this.add.container(0, 0).setDepth(5000).setScrollFactor(0);
+        this.matchSetupMenu = this.addUI(this.add.container(0, 0).setDepth(5000).setScrollFactor(0));
         this.matchSetupOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.9).setInteractive();
         
         const pw = 500, ph = 350;
@@ -3179,7 +3232,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createQuizMenu() {
-        this.quizMenu = this.add.container(0, 0).setDepth(4000).setVisible(false).setScrollFactor(0);
+        this.quizMenu = this.addUI(this.add.container(0, 0).setDepth(4000).setVisible(false).setScrollFactor(0));
         this.quizOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8).setInteractive();
         
         const pw = 600, ph = 400;
@@ -3210,7 +3263,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createTutorialPopup() {
-        this.tutorialMenu = this.add.container(0, 0).setDepth(5500).setVisible(false).setScrollFactor(0);
+        this.tutorialMenu = this.addUI(this.add.container(0, 0).setDepth(5500).setVisible(false).setScrollFactor(0));
         
         const overlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000, 0.85).setInteractive();
         
@@ -3312,7 +3365,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createResearchMenu() {
-        this.researchMenu = this.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0);
+        this.researchMenu = this.addUI(this.add.container(0, 0).setDepth(3000).setVisible(false).setScrollFactor(0));
         
         this.researchOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8)
             .setInteractive();
@@ -3450,7 +3503,7 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     createSpeechBubble() {
-        this.speechBubble = this.add.container(0, 0).setDepth(2000).setVisible(false);
+        this.speechBubble = this.addUI(this.add.container(0, 0).setDepth(2000).setVisible(false));
 
         // Bubble Background
         const bg = this.add.graphics();
@@ -3680,7 +3733,11 @@ class EcoTycoon extends Phaser.Scene {
                 for (let i = 0; i < this.landTrash.length; i++) {
                     const t = this.landTrash[i];
                     if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) < 50) {
-                        this.heldTrashArray.push(t.getData('type'));
+                        const type = t.getData('type');
+                        const variantKey = t.getData('variantKey') || t.texture.key;
+
+                        this.heldTrashArray.push(type);
+                        this.heldTrashVariantsArray.push(variantKey);
                         
                         if (this.gameMode === 'multi') {
                             this.roomChannel.send({
@@ -3690,8 +3747,9 @@ class EcoTycoon extends Phaser.Scene {
                             });
                         }
                         
-                        const variantKey = t.getData('variantKey') || t.texture.key;
-                        const icon = this.add.image(this.player.x, this.player.y - 50 - (this.heldTrashArray.length - 1) * 20, variantKey).setScale(0.08).setDepth(this.player.depth + 1);
+                        const icon = this.add.image(this.player.x, this.player.y - 45 - (this.heldTrashArray.length - 1) * 16, variantKey)
+                            .setScale(0.045 * this.islandGridScale)
+                            .setDepth(this.player.depth + 1);
                         this.heldTrashIcons.push(icon);
                         
                         const cell = t.getData('cell');
@@ -3710,7 +3768,7 @@ class EcoTycoon extends Phaser.Scene {
 
             // Update icons pos
             this.heldTrashIcons.forEach((icon, idx) => {
-                icon.setPosition(this.player.x, this.player.y - 50 - idx * 20);
+                icon.setPosition(this.player.x, this.player.y - 45 - idx * 16);
                 icon.setDepth(this.player.depth + 1);
             });
             
@@ -3727,6 +3785,7 @@ class EcoTycoon extends Phaser.Scene {
                             if (pType === 'any' || pType === type) {
                                 this.onTrashProcessed(b, type);
                                 this.heldTrashArray.splice(i, 1);
+                                this.heldTrashVariantsArray.splice(i, 1);
                                 this.heldTrashIcons[i].destroy();
                                 this.heldTrashIcons.splice(i, 1);
                                 processedCount++;
