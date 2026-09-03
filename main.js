@@ -28,8 +28,8 @@ const TRASH_TYPES = [
 ];
 
 const ROBOT_UPGRADES = [
-    { id: 'speed', name: 'Tốc độ Robot', levels: [400, 500, 600, 750], costs: [0, 500, 1500, 3000] },
-    { id: 'capacity', name: 'Sức chứa rác', levels: [1, 2, 3, 5], costs: [0, 800, 2000, 4000] }
+    { id: 'speed', name: 'Tốc Độ Robot', levels: [400, 500, 600, 750], costs: [0, 500, 1500, 3000] },
+    { id: 'capacity', name: 'Sức Chứa Rác', levels: [1, 2, 3, 5], costs: [0, 800, 2000, 4000] }
 ];
 
 const QUIZ_QUESTIONS = [
@@ -1261,16 +1261,20 @@ class EcoTycoon extends Phaser.Scene {
             })
             .on('broadcast', { event: 'sync_stats' }, (payload) => {
                 const data = payload.payload;
-                if (data.id !== this.myId) {
-                    const netIndex = this.multiPlayers.findIndex(p => p.id === data.id);
+                if (data && data.id !== this.myId) {
+                    const netIndex = this.multiPlayers ? this.multiPlayers.findIndex(p => p.id === data.id) : -1;
                     if (netIndex !== -1) {
-                        this.playerCleanliness[netIndex] = data.cleanliness;
+                        const clean = isNaN(data.cleanliness) ? 0 : (Number(data.cleanliness) || 0);
+                        const mon = isNaN(data.money) ? 0 : (Number(data.money) || 0);
+                        const eco = isNaN(data.ecoPoints) ? 0 : (Number(data.ecoPoints) || 0);
+                        
+                        this.playerCleanliness[netIndex] = clean;
                         this.updateMask();
-                        // Check if bots is initialized before accessing
+                        
                         if (this.bots) {
                             const botObj = this.bots.find(b => b.originalIndex === netIndex);
                             if (botObj) {
-                                botObj.score = data.cleanliness * 10 + data.money * 0.1 + data.ecoPoints * 0.5;
+                                botObj.score = clean * 10 + mon * 0.1 + eco * 0.5;
                                 this.updateLeaderboard();
                             }
                         }
@@ -2273,13 +2277,17 @@ class EcoTycoon extends Phaser.Scene {
     }
 
     updateHUD() {
-        this.moneyText.setText(`$${Math.floor(this.money)}`);
-        this.ecoPointsText.setText(`${Math.floor(this.ecoPoints)}`);
-        this.cleanlinessValueText.setText(`${Math.floor(this.cleanliness)}%`);
+        const safeMoney = Math.floor(isNaN(this.money) ? 0 : (this.money || 0));
+        const safeEco = Math.floor(isNaN(this.ecoPoints) ? 0 : (this.ecoPoints || 0));
+        const safeClean = Math.floor(isNaN(this.cleanliness) ? 0 : (this.cleanliness || 0));
+
+        this.moneyText.setText(`$${safeMoney}`);
+        this.ecoPointsText.setText(`${safeEco}`);
+        this.cleanlinessValueText.setText(`${safeClean}%`);
         
         this.cleanProgressBar.clear();
         this.cleanProgressBar.fillStyle(0x32cd32, 1);
-        const barWidth = Math.max(0, 178 * (this.cleanliness / 100));
+        const barWidth = Math.max(0, 178 * (safeClean / 100));
         if (barWidth > 0) {
             this.cleanProgressBar.fillRoundedRect(21, 146, barWidth, 13, 6);
         }
@@ -3164,11 +3172,19 @@ class EcoTycoon extends Phaser.Scene {
     updateLeaderboard() {
         if (!this.leaderboardTexts) return;
         
-        const playerScore = this.cleanliness * 10 + this.money * 0.1 + this.ecoPoints * 0.5;
+        const clean = isNaN(this.cleanliness) ? 0 : (this.cleanliness || 0);
+        const mon = isNaN(this.money) ? 0 : (this.money || 0);
+        const eco = isNaN(this.ecoPoints) ? 0 : (this.ecoPoints || 0);
+        const playerScore = clean * 10 + mon * 0.1 + eco * 0.5;
         
+        const safeBots = (this.bots || []).map(b => ({
+            ...b,
+            score: isNaN(b.score) ? 0 : (b.score || 0)
+        }));
+
         const allPlayers = [
-            { name: 'BẠN', score: playerScore, isPlayer: true },
-            ...this.bots
+            { name: 'BẠN', score: isNaN(playerScore) ? 0 : playerScore, isPlayer: true },
+            ...safeBots
         ];
         
         allPlayers.sort((a, b) => b.score - a.score);
@@ -3178,8 +3194,9 @@ class EcoTycoon extends Phaser.Scene {
         allPlayers.forEach((p, idx) => {
             if (idx < 4 && this.leaderboardTexts[idx]) {
                 let color = p.isPlayer ? '#00ff00' : '#ffffff';
-                let icon = p.isPlayer ? '👤' : (this.gameMode === 'multi' ? '🌐' : botIcons[p.specialty]);
-                this.leaderboardTexts[idx].setText(`${idx + 1}. ${icon} ${p.name}: ${Math.floor(p.score)} điểm`).setFill(color);
+                let icon = p.isPlayer ? '👤' : (this.gameMode === 'multi' ? '🌐' : (botIcons[p.specialty] || '🤖'));
+                const safeScore = Math.floor(isNaN(p.score) ? 0 : p.score);
+                this.leaderboardTexts[idx].setText(`${idx + 1}. ${icon} ${p.name}: ${safeScore} điểm`).setFill(color);
             }
         });
     }
@@ -3799,6 +3816,18 @@ class EcoTycoon extends Phaser.Scene {
 
             // Real network players don't need local simulation
             // Leaderboard and Mask updates are handled by sync_stats events
+        } else if (this.gameState === 'PLAYING') {
+            this.leaderboardTimer = (this.leaderboardTimer || 0) + delta;
+            if (this.leaderboardTimer >= 1000) {
+                this.leaderboardTimer = 0;
+                if (this.bots && this.bots.length > 0) {
+                    this.bots.forEach(bot => {
+                        const growth = (5 + Math.random() * 10) * (bot.aggressiveness || 1.0);
+                        bot.score = (Number(bot.score) || 0) + growth;
+                    });
+                    this.updateLeaderboard();
+                }
+            }
         }
 
         // Minigame Loop
@@ -4138,13 +4167,22 @@ class EcoTycoon extends Phaser.Scene {
         this.gameState = 'ENDED';
         this.updateLeaderboard(); // Final score
 
-        const playerScore = this.cleanliness * 10 + this.money * 0.1 + this.ecoPoints * 0.5;
+        const clean = isNaN(this.cleanliness) ? 0 : (this.cleanliness || 0);
+        const mon = isNaN(this.money) ? 0 : (this.money || 0);
+        const eco = isNaN(this.ecoPoints) ? 0 : (this.ecoPoints || 0);
+        const playerScore = clean * 10 + mon * 0.1 + eco * 0.5;
+
+        const safeBots = (this.bots || []).map(b => ({
+            ...b,
+            score: isNaN(b.score) ? 0 : (b.score || 0)
+        }));
+
         const allPlayers = [
-            { name: 'KHU 1 (BẠN)', score: playerScore, isPlayer: true }
+            { name: 'KHU 1 (BẠN)', score: isNaN(playerScore) ? 0 : playerScore, isPlayer: true }
         ];
         
         if (this.gameMode === 'multi') {
-            allPlayers.push(...this.bots);
+            allPlayers.push(...safeBots);
         }
         
         allPlayers.sort((a, b) => b.score - a.score);
@@ -4161,7 +4199,8 @@ class EcoTycoon extends Phaser.Scene {
         const rankText = this.gameMode === 'multi' ? `Hạng của bạn: ${myRank} / ${allPlayers.length}` : `Điểm số tuyệt đối!`;
         this.add.text(this.cameras.main.width/2, this.cameras.main.height/2 - 80, rankText, { font: 'bold 32px Inter', fill: '#ffffff' }).setOrigin(0.5).setDepth(6001);
         
-        this.add.text(this.cameras.main.width/2, this.cameras.main.height/2 - 20, `Điểm Tổng: ${Math.floor(playerScore)}`, { font: 'bold 24px Inter', fill: '#00ff00' }).setOrigin(0.5).setDepth(6001);
+        const displayFinalScore = Math.floor(isNaN(playerScore) ? 0 : playerScore);
+        this.add.text(this.cameras.main.width/2, this.cameras.main.height/2 - 20, `Điểm Tổng: ${displayFinalScore}`, { font: 'bold 24px Inter', fill: '#00ff00' }).setOrigin(0.5).setDepth(6001);
 
         const btnBg = this.add.graphics().setDepth(6001);
         btnBg.fillStyle(0x32cd32, 1);
