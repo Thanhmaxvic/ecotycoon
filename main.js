@@ -1013,11 +1013,6 @@ class EcoTycoon extends Phaser.Scene {
                         if (x < 5 && y > x) ownerIndex = 0; // Left Region
                         else if (y < 5 && x > y) ownerIndex = 1; // Right Region
                         else if (x > 5 && y > 5) ownerIndex = 2; // Bottom Region
-                        
-                        // Player can only build in their own quadrant
-                        if (ownerIndex !== this.myIndex) {
-                            buildable = false;
-                        }
                     }
                 }
 
@@ -2038,6 +2033,7 @@ class EcoTycoon extends Phaser.Scene {
                 ease: 'Back.Out'
             });
 
+            const decorKey = this.selectedDecorType.key;
             this.selectedDecorType = null;
             this.highlightSelected({ setScale: () => {} }); // clear highlight
 
@@ -2051,7 +2047,7 @@ class EcoTycoon extends Phaser.Scene {
                         id: this.myId,
                         gx: gx,
                         gy: gy,
-                        key: this.selectedDecorType.key
+                        key: decorKey
                     }
                 });
             }
@@ -2126,6 +2122,7 @@ class EcoTycoon extends Phaser.Scene {
             cell.building = b;
             this.playConstructionEffect(b, cell.posX, cell.posY);
             this.buildings.push(b);
+            const buildingKey = this.selectedBuildingType.key;
             this.selectedBuilding = b;
             this.selectedBuildingType = null;
 
@@ -2140,7 +2137,7 @@ class EcoTycoon extends Phaser.Scene {
                         id: this.myId,
                         gx: gx,
                         gy: gy,
-                        key: this.selectedBuildingType.key
+                        key: buildingKey
                     }
                 });
             }
@@ -3911,7 +3908,10 @@ class EcoTycoon extends Phaser.Scene {
         }
 
         const cell = this.grid[gridPos.x][gridPos.y];
-        const canPlace = cell.isBuildable && !cell.building && !cell.hasTrash;
+        let canPlace = cell.isBuildable && !cell.building && !cell.hasTrash;
+        if (this.gameMode === 'multi' && cell.ownerIndex !== this.myIndex) {
+            canPlace = false;
+        }
         const type = this.selectedBuildingType || this.selectedDecorType;
 
         // Update or create indicator (the grid diamond)
