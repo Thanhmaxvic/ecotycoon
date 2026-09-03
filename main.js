@@ -1173,7 +1173,7 @@ class EcoTycoon extends Phaser.Scene {
                     // Add safety check in case this.multiPlayers[i] is undefined for some reason
                     const pName = this.multiPlayers[i] ? this.multiPlayers[i].username : `Guest_${i}`;
                     const netName = this.add.text(pos.x, pos.y - 40, pName, { font: 'bold 14px Inter', fill: '#8888ff' }).setOrigin(0.5).setDepth(1001);
-                    this.networkPlayers[i] = { sprite: netSprite, text: netName, heldTrashIcons: [] };
+                    this.networkPlayers[i] = { sprite: netSprite, text: netName, heldTrashIcons: [], targetX: pos.x, targetY: pos.y, targetFlipX: false, targetDepth: 1000 };
                 }
             }
             
@@ -1205,22 +1205,11 @@ class EcoTycoon extends Phaser.Scene {
                     if (netIndex !== -1 && this.networkPlayers[netIndex]) {
                         const netPlayer = this.networkPlayers[netIndex];
                         
-                        // Tween movement
-                        this.tweens.add({
-                            targets: netPlayer.sprite,
-                            x: data.x,
-                            y: data.y,
-                            duration: 100 // assuming 10hz update rate
-                        });
-                        this.tweens.add({
-                            targets: netPlayer.text,
-                            x: data.x,
-                            y: data.y - 40,
-                            duration: 100
-                        });
-                        
-                        netPlayer.sprite.flipX = data.flipX;
-                        netPlayer.sprite.setDepth(data.depth);
+                        // Store target for lerp interpolation (NO tweens — prevents memory leak on mobile)
+                        netPlayer.targetX = data.x;
+                        netPlayer.targetY = data.y;
+                        netPlayer.targetFlipX = data.flipX;
+                        netPlayer.targetDepth = data.depth;
                         
                         // Update held trash (exact variant sync)
                         const remoteVariants = data.heldTrashVariants || [];
@@ -1238,11 +1227,6 @@ class EcoTycoon extends Phaser.Scene {
                                 if (textureKey.includes('circuit')) sc = 0.05;
                                 const icon = this.add.image(data.x, data.y - 50 - j * 20, textureKey).setScale(sc).setDepth(data.depth + 1);
                                 netPlayer.heldTrashIcons.push(icon);
-                            });
-                        } else {
-                            netPlayer.heldTrashIcons.forEach((icon, j) => {
-                                this.tweens.add({ targets: icon, x: data.x, y: data.y - 50 - j * 20, duration: 100 });
-                                icon.setDepth(data.depth + 1);
                             });
                         }
                     }
@@ -1359,7 +1343,7 @@ class EcoTycoon extends Phaser.Scene {
                 if (status === 'SUBSCRIBED') {
                     // Send out movement periodically
                     this.time.addEvent({
-                        delay: 100, // 10hz
+                        delay: 200, // 5hz — giảm tải cho mobile
                         loop: true,
                         callback: () => {
                             if (this.player && this.gameState === 'PLAYING') {
@@ -3056,6 +3040,10 @@ class EcoTycoon extends Phaser.Scene {
         msgLine.appendChild(textSpan);
         
         this.chatMessagesDiv.appendChild(msgLine);
+        // Giới hạn 50 tin nhắn để tránh DOM phình to trên mobile
+        while (this.chatMessagesDiv.childNodes.length > 50) {
+            this.chatMessagesDiv.removeChild(this.chatMessagesDiv.firstChild);
+        }
         this.chatMessagesDiv.scrollTop = this.chatMessagesDiv.scrollHeight;
         
         // Show unread badge if chat is closed
@@ -3644,6 +3632,28 @@ class EcoTycoon extends Phaser.Scene {
 
         this.updatePlacementPreview();
 
+        // Interpolate network players via lerp (thay thế tween để tránh memory leak)
+        if (this.gameMode === 'multi' && this.networkPlayers) {
+            const lerpFactor = Math.min(1, delta / 150);
+            for (let i = 0; i < 3; i++) {
+                if (i === this.myIndex || !this.networkPlayers[i]) continue;
+                const np = this.networkPlayers[i];
+                if (np.targetX !== undefined) {
+                    np.sprite.x += (np.targetX - np.sprite.x) * lerpFactor;
+                    np.sprite.y += (np.targetY - np.sprite.y) * lerpFactor;
+                    np.text.x += (np.targetX - np.text.x) * lerpFactor;
+                    np.text.y += (np.targetY - 40 - np.text.y) * lerpFactor;
+                    np.sprite.flipX = np.targetFlipX;
+                    np.sprite.setDepth(np.targetDepth);
+                    np.heldTrashIcons.forEach((icon, j) => {
+                        icon.x += (np.targetX - icon.x) * lerpFactor;
+                        icon.y += (np.targetY - 50 - j * 20 - icon.y) * lerpFactor;
+                        icon.setDepth(np.targetDepth + 1);
+                    });
+                }
+            }
+        }
+
         let totalRate = 0;
         let totalIncomeRate = 0;
         let totalEcoRate = 0;
@@ -3781,8 +3791,13 @@ class EcoTycoon extends Phaser.Scene {
             this.money += (totalIncomeRate + this.cleanliness / 5) * elapsed * this.incomeMultiplier;
             this.ecoPoints += (totalEcoRate + this.cleanliness / 10) * elapsed * this.incomeMultiplier;
 
-            this.updateMask();
-            this.updateHUD();
+            // Throttle mask/HUD: mỗi 500ms hoặc khi cleanliness thay đổi đáng kể
+            this._hudTimer = (this._hudTimer || 0) + delta;
+            if (this._hudTimer >= 500 || Math.floor(this.cleanliness) !== Math.floor(oldCleanliness)) {
+                this._hudTimer = 0;
+                this.updateMask();
+                this.updateHUD();
+            }
 
             if (Math.floor(this.cleanliness / 10) > Math.floor(oldCleanliness / 10)) {
                 this.sound.play('clean_progress_sfx', { volume: 0.3 });
@@ -4215,6 +4230,11 @@ class EcoTycoon extends Phaser.Scene {
     }
 }
 
+// Giảm độ phân giải canvas trên mobile để tăng hiệu năng GPU
+const isMobileDevice = /Android|iPhone|iPad|iPod|Opera Mini|IEMobile/i.test(navigator.userAgent) || (window.innerWidth <= 1024 && 'ontouchstart' in window);
+const gameWidth = isMobileDevice ? 1280 : 1920;
+const gameHeight = isMobileDevice ? 720 : 1080;
+
 const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
@@ -4224,8 +4244,8 @@ const config = {
     scale: {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH,
-        width: 1920,
-        height: 1080
+        width: gameWidth,
+        height: gameHeight
     },
     backgroundColor: '#05101a',
     scene: [Preloader, LoginScene, MainMenuScene, LevelSelectScene, MatchmakingScene, EcoTycoon]
@@ -4248,4 +4268,4 @@ window.addEventListener('pointerdown', () => {
             console.log(`Không thể bật chế độ fullscreen: ${err.message}`);
         });
     }
-});
+}, { once: true });
