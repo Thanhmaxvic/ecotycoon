@@ -171,8 +171,8 @@ class Preloader extends Phaser.Scene {
         this.load.image('prof_eco', 'assets/prof_eco.webp');
         this.load.image('industrial_robot', 'assets/industrial_robot.webp');
         this.load.image('worker_robot_l3', 'assets/worker_robot_l3.webp');
-        this.load.image('robot_skin_panda', 'assets/robot_skin_panda.png');
-        this.load.image('robot_skin_mecha', 'assets/robot_skin_mecha.png');
+        this.load.image('robot_skin_panda', 'assets/robot_skin_panda.webp');
+        this.load.image('robot_skin_mecha', 'assets/robot_skin_mecha.webp');
         this.load.image('island_tropical_new_polluted', 'assets/island_tropical_new_polluted.webp');
         this.load.image('island_tropical_new_recovery', 'assets/island_tropical_new_recovery.webp');
         this.load.image('island_tropical_new_thriving', 'assets/island_tropical_new_thriving.webp');
@@ -411,6 +411,7 @@ class LoginScene extends Phaser.Scene {
         }
 
         localStorage.setItem('eco_username', username);
+        localStorage.setItem('eco_userid', user.id);
         this.scene.start('MainMenuScene');
     }
 }
@@ -458,7 +459,7 @@ class MainMenuScene extends Phaser.Scene {
         this.add.text(20, 20, '⬅ Đăng Xuất', { font: 'bold 16px Inter', fill: '#ff4444', stroke: '#000000', strokeThickness: 4 }).setInteractive({ useHandCursor: true })
             .on('pointerdown', async () => {
                 localStorage.removeItem('eco_username');
-                localStorage.removeItem('eco_save_data'); // Xóa lưu tiến trình khi sign out
+                localStorage.removeItem('eco_userid');
                 await supabase.auth.signOut();
                 this.scene.start('LoginScene');
             });
@@ -500,7 +501,8 @@ class LevelSelectScene extends Phaser.Scene {
         const cardY = topY + 260;
 
         let unlockedMaps = ['tropical'];
-        const savedUnlocked = localStorage.getItem('eco_unlocked_maps');
+        const uid = localStorage.getItem('eco_userid') || 'guest';
+        const savedUnlocked = localStorage.getItem(`eco_unlocked_maps_${uid}`);
         if (savedUnlocked) {
             try {
                 unlockedMaps = JSON.parse(savedUnlocked);
@@ -816,7 +818,8 @@ class EcoTycoon extends Phaser.Scene {
         this.playerCapLevel = 1;
         this.playerSpeed = ROBOT_UPGRADES[0].levels[0];
         this.playerCap = ROBOT_UPGRADES[1].levels[0];
-        this.playerSkin = localStorage.getItem('eco_player_skin') || null;
+        const uid = localStorage.getItem('eco_userid') || 'guest';
+        this.playerSkin = localStorage.getItem(`eco_player_skin_${uid}`) || null;
         this.heldTrashArray = [];
         this.heldTrashIcons = [];
         this.placementPreview = null;
@@ -1626,19 +1629,19 @@ class EcoTycoon extends Phaser.Scene {
             this.openMinigame();
         });
 
-        // --- Quiz Button (Top Right, beside Minigame) ---
+        // --- Quiz Button (Top Right Row 2) ---
         const btnQuizBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         btnQuizBg.fillStyle(0xff00ff, 1);
-        btnQuizBg.fillRoundedRect(this.cameras.main.width - 640, 20, 140, 45, 10);
+        btnQuizBg.fillRoundedRect(this.cameras.main.width - 160, 75, 140, 45, 10);
         btnQuizBg.lineStyle(3, 0x8b008b);
-        btnQuizBg.strokeRoundedRect(this.cameras.main.width - 640, 20, 140, 45, 10);
+        btnQuizBg.strokeRoundedRect(this.cameras.main.width - 160, 75, 140, 45, 10);
 
-        const btnQuizHitArea = this.add.rectangle(this.cameras.main.width - 570, 42, 140, 45, 0x000, 0)
+        const btnQuizHitArea = this.add.rectangle(this.cameras.main.width - 90, 97, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
 
-        this.add.text(this.cameras.main.width - 570, 42, '📝 CÂU HỎI', {
+        this.add.text(this.cameras.main.width - 90, 97, '📝 CÂU HỎI', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
@@ -1648,44 +1651,44 @@ class EcoTycoon extends Phaser.Scene {
             this.showQuiz();
         });
 
-        // --- Quest Button (Top Right, beside Quiz) ---
+        // --- Quest Button (Top Right Row 2) ---
         const btnQuestBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         btnQuestBg.fillStyle(0x00ccff, 1);
-        btnQuestBg.fillRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
+        btnQuestBg.fillRoundedRect(this.cameras.main.width - 320, 75, 140, 45, 10);
         btnQuestBg.lineStyle(3, 0x0088cc);
-        btnQuestBg.strokeRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
+        btnQuestBg.strokeRoundedRect(this.cameras.main.width - 320, 75, 140, 45, 10);
 
-        const btnQuestHitArea = this.add.rectangle(this.cameras.main.width - 730, 42, 140, 45, 0x000, 0)
+        const btnQuestHitArea = this.add.rectangle(this.cameras.main.width - 250, 97, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
 
-        this.add.text(this.cameras.main.width - 730, 42, '🎯 NHIỆM VỤ', {
+        this.add.text(this.cameras.main.width - 250, 97, '🎯 NHIỆM VỤ', {
             font: 'bold 14px Inter',
             fill: '#000000'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
 
-        this.questBadgeBg = this.add.circle(this.cameras.main.width - 670, 25, 10, 0xff0000).setScrollFactor(0).setDepth(1002).setVisible(false);
-        this.questBadgeText = this.add.text(this.cameras.main.width - 670, 25, '!', { font: 'bold 12px Inter', fill: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(1003).setVisible(false);
+        this.questBadgeBg = this.add.circle(this.cameras.main.width - 190, 80, 10, 0xff0000).setScrollFactor(0).setDepth(1002).setVisible(false);
+        this.questBadgeText = this.add.text(this.cameras.main.width - 190, 80, '!', { font: 'bold 12px Inter', fill: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(1003).setVisible(false);
 
         btnQuestHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
             this.openQuestMenu();
         });
 
-        // --- Shop Button (Top Right, beside Quest) ---
+        // --- Shop Button (Top Right Row 2) ---
         const btnShopBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         btnShopBg.fillStyle(0x9400d3, 1);
-        btnShopBg.fillRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnShopBg.fillRoundedRect(this.cameras.main.width - 480, 75, 140, 45, 10);
         btnShopBg.lineStyle(3, 0x4b0082);
-        btnShopBg.strokeRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnShopBg.strokeRoundedRect(this.cameras.main.width - 480, 75, 140, 45, 10);
 
-        const btnShopHitArea = this.add.rectangle(this.cameras.main.width - 890, 42, 140, 45, 0x000, 0)
+        const btnShopHitArea = this.add.rectangle(this.cameras.main.width - 410, 97, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
 
-        this.add.text(this.cameras.main.width - 890, 42, '🛒 CỬA HÀNG', {
+        this.add.text(this.cameras.main.width - 410, 97, '🛒 CỬA HÀNG', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
@@ -1717,27 +1720,7 @@ class EcoTycoon extends Phaser.Scene {
             this.openExitMenu();
         });
 
-        // --- Lab Button (Top Center, beside Pause) ---
-        const btnLabBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
-        btnLabBg.fillStyle(0x008080, 1);
-        btnLabBg.fillRoundedRect(this.cameras.main.width / 2 + 5, 85, 140, 36, 10);
-        btnLabBg.lineStyle(3, 0x006666);
-        btnLabBg.strokeRoundedRect(this.cameras.main.width / 2 + 5, 85, 140, 36, 10);
-
-        const btnLabHitArea = this.add.rectangle(this.cameras.main.width / 2 + 75, 103, 140, 36, 0x000, 0)
-            .setInteractive({ useHandCursor: true })
-            .setScrollFactor(0)
-            .setDepth(1001);
-
-        this.add.text(this.cameras.main.width / 2 + 75, 103, '🧪 THÍ NGHIỆM', {
-            font: 'bold 14px Inter',
-            fill: '#ffffff'
-        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
-
-        btnLabHitArea.on('pointerdown', (pointer) => {
-            pointer.event.stopPropagation();
-            this.openLabMenu();
-        });
+        // Lab minigame button is now moved into the MINIGAME menu
 
         // --- Virtual Joystick for Mobile Movement ---
         this.joystickBase = this.add.circle(150, this.cameras.main.height - 250, 80, 0x000000, 0.4).setScrollFactor(0).setDepth(2000);
@@ -2638,7 +2621,8 @@ class EcoTycoon extends Phaser.Scene {
             { id: 'robot_skin_mecha', name: 'Mecha Vệ Sinh', price: 500, priceType: 'eco', buff: 'Sức chứa +2' }
         ];
 
-        this.unlockedSkins = JSON.parse(localStorage.getItem('eco_unlocked_skins')) || [];
+        const uid = localStorage.getItem('eco_userid') || 'guest';
+        this.unlockedSkins = JSON.parse(localStorage.getItem(`eco_unlocked_skins_${uid}`)) || [];
 
         skins.forEach((skin, idx) => {
             const sx = px - 150 + idx * 300;
@@ -2708,7 +2692,8 @@ class EcoTycoon extends Phaser.Scene {
     unlockSkin(id) {
         if (!this.unlockedSkins.includes(id)) {
             this.unlockedSkins.push(id);
-            localStorage.setItem('eco_unlocked_skins', JSON.stringify(this.unlockedSkins));
+            const uid = localStorage.getItem('eco_userid') || 'guest';
+            localStorage.setItem(`eco_unlocked_skins_${uid}`, JSON.stringify(this.unlockedSkins));
             this.showToast('Mua thành công!');
             this.updateQuestProgress('q8', 1);
         }
@@ -2716,7 +2701,8 @@ class EcoTycoon extends Phaser.Scene {
 
     equipSkin(id) {
         this.playerSkin = id;
-        localStorage.setItem('eco_player_skin', id);
+        const uid = localStorage.getItem('eco_userid') || 'guest';
+        localStorage.setItem(`eco_player_skin_${uid}`, id);
         this.player.setTexture(id);
         this.player.setScale(0.15);
         this.showToast('Đã trang bị skin!');
@@ -2746,9 +2732,9 @@ class EcoTycoon extends Phaser.Scene {
 
         // Materials to choose from
         const materials = [
-            { id: 'mat_metal', name: 'Khung Kim Loại', color: 0x888888, icon: 'metal_recycler_l1' },
-            { id: 'mat_glass', name: 'Kính Chịu Lực', color: 0x00ffff, icon: 'plastic_recycler_l1' },
-            { id: 'mat_circuit', name: 'Mạch Điện', color: 0xffaa00, icon: 'circuit_recycler_l1' }
+            { id: 'mat_metal', name: 'Kim Loại', color: 0x888888, icon: 'single_trash_soda_can' },
+            { id: 'mat_glass', name: 'Kính/Nhựa', color: 0x00ffff, icon: 'single_trash_plastic_bottle' },
+            { id: 'mat_circuit', name: 'Mạch Điện', color: 0xffaa00, icon: 'single_trash_circuit_board_broken' }
         ];
 
         this.labCraftingSlots = [];
@@ -2782,12 +2768,13 @@ class EcoTycoon extends Phaser.Scene {
             btnBg.lineStyle(2, mat.color);
             btnBg.strokeRoundedRect(btnX - 60, btnY - 30, 120, 60, 8);
 
-            const btnText = this.add.text(btnX, btnY, mat.name, { font: 'bold 12px Inter', fill: '#fff', align: 'center', wordWrap: { width: 100 } }).setOrigin(0.5);
+            const matIcon = this.add.image(btnX, btnY - 10, mat.icon).setScale(0.12);
+            const btnText = this.add.text(btnX, btnY + 18, mat.name, { font: 'bold 12px Inter', fill: '#fff', align: 'center' }).setOrigin(0.5);
 
             const hitArea = this.add.rectangle(btnX, btnY, 120, 60, 0x0, 0).setInteractive({ useHandCursor: true });
             hitArea.on('pointerdown', () => this.addLabMaterial(mat));
 
-            this.labMenu.add([btnBg, btnText, hitArea]);
+            this.labMenu.add([btnBg, matIcon, btnText, hitArea]);
         });
         
         // Reset button
@@ -2811,7 +2798,7 @@ class EcoTycoon extends Phaser.Scene {
             slot.text.setText('✔️');
             slot.text.setColor('#00ff00');
             
-            const icon = this.add.image(slot.x, slot.y - 15, mat.icon).setScale(0.06);
+            const icon = this.add.image(slot.x, slot.y - 5, mat.icon).setScale(0.15);
             this.labMenu.add(icon);
             slot.icon = icon;
 
@@ -2979,9 +2966,9 @@ class EcoTycoon extends Phaser.Scene {
         // Game 1: Catch Trash
         const btn1Bg = this.add.graphics();
         btn1Bg.fillStyle(0x32cd32, 1);
-        btn1Bg.fillRoundedRect(px - 320, py - 20, 300, 150, 16);
-        const btn1Txt = this.add.text(px - 170, py + 55, 'HỨNG RÁC\n(Phân loại rác)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
-        const hit1 = this.add.rectangle(px - 170, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
+        btn1Bg.fillRoundedRect(px - 490, py - 20, 300, 150, 16);
+        const btn1Txt = this.add.text(px - 340, py + 55, 'HỨNG RÁC\n(Phân loại rác)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
+        const hit1 = this.add.rectangle(px - 340, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
         hit1.on('pointerdown', () => {
             this.minigameSelectionContainer.setVisible(false);
             this.showMinigameLeaderboard();
@@ -2990,18 +2977,30 @@ class EcoTycoon extends Phaser.Scene {
         // Game 2: Sea Cleanup
         const btn2Bg = this.add.graphics();
         btn2Bg.fillStyle(0x4682b4, 1);
-        btn2Bg.fillRoundedRect(px + 20, py - 20, 300, 150, 16);
-        const btn2Txt = this.add.text(px + 170, py + 55, 'DỌN BIỂN\n(Bảo vệ đại dương)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
-        const hit2 = this.add.rectangle(px + 170, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
+        btn2Bg.fillRoundedRect(px - 150, py - 20, 300, 150, 16);
+        const btn2Txt = this.add.text(px, py + 55, 'DỌN BIỂN\n(Bảo vệ đại dương)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
+        const hit2 = this.add.rectangle(px, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
         hit2.on('pointerdown', () => {
             this.minigameSelectionContainer.setVisible(false);
             this.startSeaCleanupGame();
         });
 
+        // Game 3: Lab Minigame
+        const btn3Bg = this.add.graphics();
+        btn3Bg.fillStyle(0x008080, 1);
+        btn3Bg.fillRoundedRect(px + 190, py - 20, 300, 150, 16);
+        const btn3Txt = this.add.text(px + 340, py + 55, 'THÍ NGHIỆM\n(Ghép Vật Liệu)', { font: 'bold 20px Inter', fill: '#ffffff', align: 'center' }).setOrigin(0.5);
+        const hit3 = this.add.rectangle(px + 340, py + 55, 300, 150, 0x0, 0).setInteractive({ useHandCursor: true });
+        hit3.on('pointerdown', () => {
+            this.minigameMenu.setVisible(false);
+            this.openLabMenu();
+        });
+
+
         const closeSel = this.add.text(px, py + 200, '✖ ĐÓNG', { font: 'bold 22px Inter', fill: '#ff4444' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
         closeSel.on('pointerdown', () => this.minigameMenu.setVisible(false));
 
-        this.minigameSelectionContainer.add([selTitle, btn1Bg, btn1Txt, hit1, btn2Bg, btn2Txt, hit2, closeSel]);
+        this.minigameSelectionContainer.add([selTitle, btn1Bg, btn1Txt, hit1, btn2Bg, btn2Txt, hit2, btn3Bg, btn3Txt, hit3, closeSel]);
         this.minigameMenu.add(this.minigameSelectionContainer);
 
         // Setup Bins Container
@@ -3702,7 +3701,7 @@ class EcoTycoon extends Phaser.Scene {
         this.questMenu = this.add.container(0, 0).setDepth(5000).setVisible(false).setScrollFactor(0);
         this.questOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000, 0.8).setInteractive();
 
-        const pw = 600, ph = 400;
+        const pw = 600, ph = 600;
         const px = this.cameras.main.width / 2;
         const py = this.cameras.main.height / 2;
 
@@ -3726,10 +3725,10 @@ class EcoTycoon extends Phaser.Scene {
         if (this.tutorialStep === 3) this.advanceTutorial();
         this.questContainer.removeAll(true);
         const px = this.cameras.main.width / 2;
-        const py = this.cameras.main.height / 2 - 100;
+        const py = this.cameras.main.height / 2 - 220;
 
         this.quests.forEach((q, i) => {
-            const rowY = py + i * 70;
+            const rowY = py + i * 65;
             const itemBg = this.add.graphics();
             itemBg.fillStyle(q.completed ? (q.claimed ? 0xdddddd : 0xeeffaa) : 0xffffff, 1);
             itemBg.fillRoundedRect(px - 250, rowY - 30, 500, 60, 8);
@@ -3906,13 +3905,14 @@ class EcoTycoon extends Phaser.Scene {
                         const nextTheme = MAP_THEMES[currentIdx + 1];
                         let unlockedMaps = ['tropical'];
                         try {
-                            const saved = localStorage.getItem('eco_unlocked_maps');
+                            const uid = localStorage.getItem('eco_userid') || 'guest';
+                            const saved = localStorage.getItem(`eco_unlocked_maps_${uid}`);
                             if (saved) unlockedMaps = JSON.parse(saved);
                         } catch (e) {}
                         
                         if (!unlockedMaps.includes(nextTheme.id)) {
                             unlockedMaps.push(nextTheme.id);
-                            localStorage.setItem('eco_unlocked_maps', JSON.stringify(unlockedMaps));
+                            localStorage.setItem(`eco_unlocked_maps_${uid}`, JSON.stringify(unlockedMaps));
                             setTimeout(() => {
                                 this.showFloatingText(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50, `ĐÃ MỞ KHÓA: ${nextTheme.name.toUpperCase()}!`, '#ffff00');
                             }, 2000);
@@ -4072,7 +4072,8 @@ class EcoTycoon extends Phaser.Scene {
                     };
                 }).filter(b => b.gridX !== -1)
             };
-            localStorage.setItem('eco_save_data', JSON.stringify(saveData));
+            const uid = localStorage.getItem('eco_userid') || 'guest';
+            localStorage.setItem(`eco_save_data_${uid}`, JSON.stringify(saveData));
         } catch (e) {
             console.error('Error saving game:', e);
         }
@@ -4080,7 +4081,8 @@ class EcoTycoon extends Phaser.Scene {
 
     loadGame() {
         if (this.gameMode !== 'single') return;
-        const saved = localStorage.getItem('eco_save_data');
+        const uid = localStorage.getItem('eco_userid') || 'guest';
+        const saved = localStorage.getItem(`eco_save_data_${uid}`);
         if (!saved) return;
 
         try {
