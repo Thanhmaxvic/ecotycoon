@@ -171,6 +171,8 @@ class Preloader extends Phaser.Scene {
         this.load.image('prof_eco', 'assets/prof_eco.webp');
         this.load.image('industrial_robot', 'assets/industrial_robot.webp');
         this.load.image('worker_robot_l3', 'assets/worker_robot_l3.webp');
+        this.load.image('robot_skin_panda', 'assets/robot_skin_panda.png');
+        this.load.image('robot_skin_mecha', 'assets/robot_skin_mecha.png');
         this.load.image('island_tropical_new_polluted', 'assets/island_tropical_new_polluted.webp');
         this.load.image('island_tropical_new_recovery', 'assets/island_tropical_new_recovery.webp');
         this.load.image('island_tropical_new_thriving', 'assets/island_tropical_new_thriving.webp');
@@ -497,9 +499,18 @@ class LevelSelectScene extends Phaser.Scene {
         const startX = cx - totalW / 2 + cardW / 2;
         const cardY = topY + 260;
 
+        let unlockedMaps = ['tropical'];
+        const savedUnlocked = localStorage.getItem('eco_unlocked_maps');
+        if (savedUnlocked) {
+            try {
+                unlockedMaps = JSON.parse(savedUnlocked);
+            } catch (e) {}
+        }
+
         MAP_THEMES.forEach((theme, idx) => {
             const x = startX + idx * (cardW + gap);
-            this.createMapCard(x, cardY, cardW, cardH, theme);
+            const isUnlocked = unlockedMaps.includes(theme.id);
+            this.createMapCard(x, cardY, cardW, cardH, theme, isUnlocked);
         });
 
         // Back button
@@ -511,11 +522,11 @@ class LevelSelectScene extends Phaser.Scene {
             .on('pointerdown', () => this.scene.start('MainMenuScene'));
     }
 
-    createMapCard(x, y, w, h, theme) {
+    createMapCard(x, y, w, h, theme, isUnlocked) {
         const bg = this.add.graphics();
         bg.fillStyle(0x14232c, 1);
         bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
-        bg.lineStyle(3, 0x4682b4, 1);
+        bg.lineStyle(3, isUnlocked ? 0x4682b4 : 0x555555, 1);
         bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
 
         // Preview image (polluted starting state of the theme)
@@ -523,54 +534,62 @@ class LevelSelectScene extends Phaser.Scene {
         const targetW = w - 30;
         const scale = targetW / preview.width;
         preview.setScale(scale);
+        
+        if (!isUnlocked) {
+            preview.setTint(0x555555);
+        }
+
         // Clip preview to a rounded rect area using a mask
         const clipShape = this.make.graphics({ x: 0, y: 0, add: false });
         clipShape.fillStyle(0xffffff);
         clipShape.fillRoundedRect(x - w / 2 + 12, y - h / 2 + 12, w - 24, 190, 10);
         preview.setMask(clipShape.createGeometryMask());
 
-        this.add.text(x, y - h / 2 + 220, theme.name, { font: 'bold 22px Inter', fill: '#ffcc00' }).setOrigin(0.5);
-        this.add.text(x, y - h / 2 + 255, theme.desc, {
+        this.add.text(x, y - h / 2 + 220, isUnlocked ? theme.name : '???', { font: 'bold 22px Inter', fill: isUnlocked ? '#ffcc00' : '#888' }).setOrigin(0.5);
+        this.add.text(x, y - h / 2 + 255, isUnlocked ? theme.desc : 'Đạt 100% độ sạch ở bản đồ trước để mở khóa.', {
             font: '14px Inter', fill: '#dddddd', align: 'center', wordWrap: { width: w - 30 }
         }).setOrigin(0.5, 0);
 
         const btnY = y + h / 2 - 40;
         const btnBg = this.add.graphics();
-        btnBg.fillStyle(0x32cd32, 1);
+        btnBg.fillStyle(isUnlocked ? 0x32cd32 : 0x555555, 1);
         btnBg.fillRoundedRect(x - (w - 40) / 2, btnY - 22, w - 40, 44, 8);
-        this.add.text(x, btnY, '▶ BẮT ĐẦU', { font: 'bold 18px Inter', fill: '#fff' }).setOrigin(0.5);
-        this.add.rectangle(x, btnY, w - 40, 44, 0x0, 0).setInteractive({ useHandCursor: true })
-            .on('pointerdown', () => {
+        this.add.text(x, btnY, isUnlocked ? '▶ BẮT ĐẦU' : '🔒 ĐÃ KHÓA', { font: 'bold 18px Inter', fill: '#fff' }).setOrigin(0.5);
+        
+        if (isUnlocked) {
+            this.add.rectangle(x, btnY, w - 40, 44, 0x0, 0).setInteractive({ useHandCursor: true })
+                .on('pointerdown', () => {
+                    if (this.gameMode === 'multi') {
+                        this.scene.start('MatchmakingScene', { mapTheme: theme.id });
+                    } else {
+                        this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id });
+                    }
+                });
+
+            // Whole card is hoverable/clickable too for convenience
+            const hitArea = this.add.rectangle(x, y, w, h, 0x0, 0).setInteractive({ useHandCursor: true });
+            hitArea.on('pointerdown', () => {
                 if (this.gameMode === 'multi') {
                     this.scene.start('MatchmakingScene', { mapTheme: theme.id });
                 } else {
                     this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id });
                 }
             });
-
-        // Whole card is hoverable/clickable too for convenience
-        const hitArea = this.add.rectangle(x, y, w, h, 0x0, 0).setInteractive({ useHandCursor: true });
-        hitArea.on('pointerdown', () => {
-            if (this.gameMode === 'multi') {
-                this.scene.start('MatchmakingScene', { mapTheme: theme.id });
-            } else {
-                this.scene.start('EcoTycoon', { mode: this.gameMode, mapTheme: theme.id });
-            }
-        });
-        hitArea.on('pointerover', () => {
-            bg.clear();
-            bg.fillStyle(0x1c3540, 1);
-            bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
-            bg.lineStyle(3, 0x9cff75, 1);
-            bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
-        });
-        hitArea.on('pointerout', () => {
-            bg.clear();
-            bg.fillStyle(0x14232c, 1);
-            bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
-            bg.lineStyle(3, 0x4682b4, 1);
-            bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
-        });
+            hitArea.on('pointerover', () => {
+                bg.clear();
+                bg.fillStyle(0x1c3540, 1);
+                bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+                bg.lineStyle(3, 0x9cff75, 1);
+                bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+            });
+            hitArea.on('pointerout', () => {
+                bg.clear();
+                bg.fillStyle(0x14232c, 1);
+                bg.fillRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+                bg.lineStyle(3, 0x4682b4, 1);
+                bg.strokeRoundedRect(x - w / 2, y - h / 2, w, h, 16);
+            });
+        }
     }
 }
 
@@ -776,7 +795,11 @@ class EcoTycoon extends Phaser.Scene {
             { id: 'q1', text: 'Thu gom 5 rác', target: 5, progress: 0, rewardM: 100, rewardE: 20, completed: false, claimed: false },
             { id: 'q2', text: 'Xây 3 Pin Mặt Trời', target: 3, progress: 0, rewardM: 200, rewardE: 50, completed: false, claimed: false },
             { id: 'q3', text: 'Nâng cấp Robot 1 lần', target: 1, progress: 0, rewardM: 0, rewardE: 100, completed: false, claimed: false },
-            { id: 'q4', text: 'Đạt 15% Độ Sạch', target: 15, progress: 0, rewardM: 500, rewardE: 150, completed: false, claimed: false }
+            { id: 'q4', text: 'Đạt 15% Độ Sạch', target: 15, progress: 0, rewardM: 500, rewardE: 150, completed: false, claimed: false },
+            { id: 'q5', text: 'Thu gom 50 rác', target: 50, progress: 0, rewardM: 500, rewardE: 100, completed: false, claimed: false },
+            { id: 'q6', text: 'Đạt 50% Độ Sạch', target: 50, progress: 0, rewardM: 1000, rewardE: 300, completed: false, claimed: false },
+            { id: 'q7', text: 'Đạt 100% Độ Sạch', target: 100, progress: 0, rewardM: 5000, rewardE: 1000, completed: false, claimed: false },
+            { id: 'q8', text: 'Sở hữu 1 Skin', target: 1, progress: 0, rewardM: 0, rewardE: 500, completed: false, claimed: false }
         ];
         this.questUnread = 0;
 
@@ -793,6 +816,7 @@ class EcoTycoon extends Phaser.Scene {
         this.playerCapLevel = 1;
         this.playerSpeed = ROBOT_UPGRADES[0].levels[0];
         this.playerCap = ROBOT_UPGRADES[1].levels[0];
+        this.playerSkin = localStorage.getItem('eco_player_skin') || null;
         this.heldTrashArray = [];
         this.heldTrashIcons = [];
         this.placementPreview = null;
@@ -1251,9 +1275,14 @@ class EcoTycoon extends Phaser.Scene {
             .setStrokeStyle(3, 0x9cff75, 0.75)
             .setDepth(995);
 
-        this.player = this.add.image(startPos.x, startPos.y, 'worker_robot').setScale(0.07 * this.islandGridScale).setDepth(1000);
+        const initTex = this.playerSkin ? this.playerSkin : 'worker_robot';
+        const initScale = this.playerSkin ? 0.12 : (0.07 * this.islandGridScale);
+        this.player = this.add.image(startPos.x, startPos.y, initTex).setScale(initScale).setDepth(1000);
         this.player.gridX = myStartGrid.x;
         this.player.gridY = myStartGrid.y;
+        
+        if (this.playerSkin === 'robot_skin_panda') this.playerSpeed *= 1.1;
+        if (this.playerSkin === 'robot_skin_mecha') this.playerCap += 2;
     }
 
     setupNetwork() {
@@ -1644,6 +1673,28 @@ class EcoTycoon extends Phaser.Scene {
             this.openQuestMenu();
         });
 
+        // --- Shop Button (Top Right, beside Quest) ---
+        const btnShopBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        btnShopBg.fillStyle(0x9400d3, 1);
+        btnShopBg.fillRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnShopBg.lineStyle(3, 0x4b0082);
+        btnShopBg.strokeRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+
+        const btnShopHitArea = this.add.rectangle(this.cameras.main.width - 890, 42, 140, 45, 0x000, 0)
+            .setInteractive({ useHandCursor: true })
+            .setScrollFactor(0)
+            .setDepth(1001);
+
+        this.add.text(this.cameras.main.width - 890, 42, '🛒 CỬA HÀNG', {
+            font: 'bold 14px Inter',
+            fill: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+
+        btnShopHitArea.on('pointerdown', (pointer) => {
+            pointer.event.stopPropagation();
+            this.openShopMenu();
+        });
+
         // --- Pause / Exit Button (Top Left, below Banner) ---
         const btnExitBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         btnExitBg.fillStyle(0xdc143c, 1);
@@ -1651,12 +1702,12 @@ class EcoTycoon extends Phaser.Scene {
         btnExitBg.lineStyle(3, 0x8b0000);
         btnExitBg.strokeRoundedRect(this.cameras.main.width / 2 - 70, 85, 140, 36, 10);
 
-        const btnExitHitArea = this.add.rectangle(this.cameras.main.width / 2, 103, 140, 36, 0x000, 0)
+        const btnExitHitArea = this.add.rectangle(this.cameras.main.width / 2 - 70, 103, 130, 36, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
 
-        this.add.text(this.cameras.main.width / 2, 103, '⏸ TẠM DỪNG', {
+        this.add.text(this.cameras.main.width / 2 - 70, 103, '⏸ TẠM DỪNG', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
@@ -1664,6 +1715,28 @@ class EcoTycoon extends Phaser.Scene {
         btnExitHitArea.on('pointerdown', (pointer) => {
             pointer.event.stopPropagation();
             this.openExitMenu();
+        });
+
+        // --- Lab Button (Top Center, beside Pause) ---
+        const btnLabBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        btnLabBg.fillStyle(0x008080, 1);
+        btnLabBg.fillRoundedRect(this.cameras.main.width / 2 + 5, 85, 140, 36, 10);
+        btnLabBg.lineStyle(3, 0x006666);
+        btnLabBg.strokeRoundedRect(this.cameras.main.width / 2 + 5, 85, 140, 36, 10);
+
+        const btnLabHitArea = this.add.rectangle(this.cameras.main.width / 2 + 75, 103, 140, 36, 0x000, 0)
+            .setInteractive({ useHandCursor: true })
+            .setScrollFactor(0)
+            .setDepth(1001);
+
+        this.add.text(this.cameras.main.width / 2 + 75, 103, '🧪 THÍ NGHIỆM', {
+            font: 'bold 14px Inter',
+            fill: '#ffffff'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+
+        btnLabHitArea.on('pointerdown', (pointer) => {
+            pointer.event.stopPropagation();
+            this.openLabMenu();
         });
 
         // --- Virtual Joystick for Mobile Movement ---
@@ -1692,6 +1765,8 @@ class EcoTycoon extends Phaser.Scene {
         this.createSeaMinigame();
         this.createExitMenu();
         this.createTrashInfoMenu();
+        this.createShopMenu();
+        this.createLabMenu();
         if (this.gameMode === 'multi') {
             this.createMatchSetupMenu();
             this.createChatUI();
@@ -2537,6 +2612,246 @@ class EcoTycoon extends Phaser.Scene {
         this.trashInfoMenu.setVisible(true);
     }
 
+    createShopMenu() {
+        this.shopMenu = this.add.container(0, 0).setDepth(4500).setVisible(false).setScrollFactor(0);
+        this.shopOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8).setInteractive();
+
+        const pw = 600, ph = 400;
+        const px = this.cameras.main.width / 2;
+        const py = this.cameras.main.height / 2;
+
+        this.shopBg = this.add.graphics();
+        this.shopBg.fillStyle(0x1a2a32, 1);
+        this.shopBg.fillRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
+        this.shopBg.lineStyle(4, 0x9400d3);
+        this.shopBg.strokeRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
+
+        this.shopTitle = this.add.text(px, py - ph / 2 + 30, '🛒 CỬA HÀNG SKIN ROBOT', { font: 'bold 24px Inter', fill: '#9400d3' }).setOrigin(0.5);
+        
+        const closeBtn = this.add.text(px + pw / 2 - 30, py - ph / 2 + 30, 'X', { font: 'bold 24px Inter', fill: '#ff0000' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        closeBtn.on('pointerdown', () => this.shopMenu.setVisible(false));
+
+        this.shopMenu.add([this.shopOverlay, this.shopBg, this.shopTitle, closeBtn]);
+        
+        const skins = [
+            { id: 'robot_skin_panda', name: 'Gấu Trúc Sinh Thái', price: 1500, priceType: 'money', buff: 'Tốc độ +10%' },
+            { id: 'robot_skin_mecha', name: 'Mecha Vệ Sinh', price: 500, priceType: 'eco', buff: 'Sức chứa +2' }
+        ];
+
+        this.unlockedSkins = JSON.parse(localStorage.getItem('eco_unlocked_skins')) || [];
+
+        skins.forEach((skin, idx) => {
+            const sx = px - 150 + idx * 300;
+            const sy = py + 20;
+
+            const card = this.add.graphics();
+            card.fillStyle(0x2c3e50, 1);
+            card.fillRoundedRect(sx - 120, sy - 140, 240, 280, 12);
+            card.lineStyle(2, 0x9400d3);
+            card.strokeRoundedRect(sx - 120, sy - 140, 240, 280, 12);
+
+            const icon = this.add.image(sx, sy - 60, skin.id).setScale(0.15);
+            const name = this.add.text(sx, sy + 30, skin.name, { font: 'bold 16px Inter', fill: '#ffffff' }).setOrigin(0.5);
+            const buff = this.add.text(sx, sy + 60, skin.buff, { font: '14px Inter', fill: '#9cff75' }).setOrigin(0.5);
+            
+            const btnBg = this.add.graphics();
+            const isUnlocked = this.unlockedSkins.includes(skin.id);
+            const btnY = sy + 100;
+            const priceStr = skin.priceType === 'money' ? `$${skin.price}` : `${skin.price}🌱`;
+            const btnText = this.add.text(sx, btnY, isUnlocked ? (this.playerSkin === skin.id ? 'ĐANG DÙNG' : 'TRANG BỊ') : `MUA (${priceStr})`, { font: 'bold 16px Inter', fill: '#fff' }).setOrigin(0.5);
+            btnBg.fillStyle(isUnlocked ? 0x555555 : (skin.priceType === 'money' ? 0xffcc00 : 0x32cd32), 1);
+            btnBg.fillRoundedRect(sx - 80, btnY - 20, 160, 40, 8);
+
+            const hitArea = this.add.rectangle(sx, btnY, 160, 40, 0x0, 0).setInteractive({ useHandCursor: true });
+            hitArea.on('pointerdown', () => {
+                if (this.unlockedSkins.includes(skin.id)) {
+                    this.equipSkin(skin.id);
+                    this.shopMenu.setVisible(false);
+                    return;
+                }
+                
+                if (skin.priceType === 'money') {
+                    if (this.money >= skin.price) {
+                        this.money -= skin.price;
+                        this.unlockSkin(skin.id);
+                        btnText.setText('TRANG BỊ');
+                        btnBg.clear();
+                        btnBg.fillStyle(0x555555, 1);
+                        btnBg.fillRoundedRect(sx - 80, btnY - 20, 160, 40, 8);
+                        this.updateHUD();
+                    } else {
+                        this.showToast('Không đủ tiền!');
+                    }
+                } else {
+                    if (this.ecoPoints >= skin.price) {
+                        this.ecoPoints -= skin.price;
+                        this.unlockSkin(skin.id);
+                        btnText.setText('TRANG BỊ');
+                        btnBg.clear();
+                        btnBg.fillStyle(0x555555, 1);
+                        btnBg.fillRoundedRect(sx - 80, btnY - 20, 160, 40, 8);
+                        this.updateHUD();
+                    } else {
+                        this.showToast('Không đủ Eco Points!');
+                    }
+                }
+            });
+
+            this.shopMenu.add([card, icon, name, buff, btnBg, btnText, hitArea]);
+        });
+    }
+
+    openShopMenu() {
+        this.shopMenu.setVisible(true);
+    }
+
+    unlockSkin(id) {
+        if (!this.unlockedSkins.includes(id)) {
+            this.unlockedSkins.push(id);
+            localStorage.setItem('eco_unlocked_skins', JSON.stringify(this.unlockedSkins));
+            this.showToast('Mua thành công!');
+            this.updateQuestProgress('q8', 1);
+        }
+    }
+
+    equipSkin(id) {
+        this.playerSkin = id;
+        localStorage.setItem('eco_player_skin', id);
+        this.player.setTexture(id);
+        this.player.setScale(0.15);
+        this.showToast('Đã trang bị skin!');
+    }
+
+    createLabMenu() {
+        this.labMenu = this.add.container(0, 0).setDepth(4500).setVisible(false).setScrollFactor(0);
+        this.labOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000000, 0.8).setInteractive();
+
+        const pw = 500, ph = 350;
+        const px = this.cameras.main.width / 2;
+        const py = this.cameras.main.height / 2;
+
+        this.labBg = this.add.graphics();
+        this.labBg.fillStyle(0x002222, 1);
+        this.labBg.fillRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
+        this.labBg.lineStyle(4, 0x00ffff);
+        this.labBg.strokeRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
+
+        this.labTitle = this.add.text(px, py - ph / 2 + 30, '🧪 PHÒNG THÍ NGHIỆM ẢO', { font: 'bold 24px Inter', fill: '#00ffff' }).setOrigin(0.5);
+        this.labDesc = this.add.text(px, py - ph / 2 + 70, 'Ghép 3 vật liệu khác nhau để chế tạo Pin Mặt Trời!', { font: '14px Inter', fill: '#ffffff' }).setOrigin(0.5);
+
+        const closeBtn = this.add.text(px + pw / 2 - 30, py - ph / 2 + 30, 'X', { font: 'bold 24px Inter', fill: '#ff0000' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        closeBtn.on('pointerdown', () => this.labMenu.setVisible(false));
+
+        this.labMenu.add([this.labOverlay, this.labBg, this.labTitle, this.labDesc, closeBtn]);
+
+        // Materials to choose from
+        const materials = [
+            { id: 'mat_metal', name: 'Khung Kim Loại', color: 0x888888, icon: 'metal_recycler_l1' },
+            { id: 'mat_glass', name: 'Kính Chịu Lực', color: 0x00ffff, icon: 'plastic_recycler_l1' },
+            { id: 'mat_circuit', name: 'Mạch Điện', color: 0xffaa00, icon: 'circuit_recycler_l1' }
+        ];
+
+        this.labCraftingSlots = [];
+        this.labCurrentCrafting = [];
+
+        // Draw 3 empty slots
+        for (let i = 0; i < 3; i++) {
+            const slotX = px - 100 + i * 100;
+            const slotY = py - 30;
+            
+            const slotBg = this.add.graphics();
+            slotBg.fillStyle(0x111111, 1);
+            slotBg.fillRoundedRect(slotX - 35, slotY - 35, 70, 70, 8);
+            slotBg.lineStyle(2, 0x444444);
+            slotBg.strokeRoundedRect(slotX - 35, slotY - 35, 70, 70, 8);
+            
+            const slotText = this.add.text(slotX, slotY, '?', { font: 'bold 24px Inter', fill: '#555' }).setOrigin(0.5);
+            
+            this.labMenu.add([slotBg, slotText]);
+            this.labCraftingSlots.push({ bg: slotBg, text: slotText, x: slotX, y: slotY });
+        }
+
+        // Draw 3 material buttons
+        materials.forEach((mat, idx) => {
+            const btnX = px - 150 + idx * 150;
+            const btnY = py + 80;
+
+            const btnBg = this.add.graphics();
+            btnBg.fillStyle(0x224444, 1);
+            btnBg.fillRoundedRect(btnX - 60, btnY - 30, 120, 60, 8);
+            btnBg.lineStyle(2, mat.color);
+            btnBg.strokeRoundedRect(btnX - 60, btnY - 30, 120, 60, 8);
+
+            const btnText = this.add.text(btnX, btnY, mat.name, { font: 'bold 12px Inter', fill: '#fff', align: 'center', wordWrap: { width: 100 } }).setOrigin(0.5);
+
+            const hitArea = this.add.rectangle(btnX, btnY, 120, 60, 0x0, 0).setInteractive({ useHandCursor: true });
+            hitArea.on('pointerdown', () => this.addLabMaterial(mat));
+
+            this.labMenu.add([btnBg, btnText, hitArea]);
+        });
+        
+        // Reset button
+        const resetBtn = this.add.text(px, py + 140, '🔄 Chế tạo lại', { font: '14px Inter', fill: '#ff8888' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        resetBtn.on('pointerdown', () => this.resetLab());
+        this.labMenu.add(resetBtn);
+    }
+
+    openLabMenu() {
+        this.resetLab();
+        this.labMenu.setVisible(true);
+    }
+
+    addLabMaterial(mat) {
+        if (this.labCurrentCrafting.length < 3) {
+            const idx = this.labCurrentCrafting.length;
+            this.labCurrentCrafting.push(mat);
+            
+            // Update slot UI
+            const slot = this.labCraftingSlots[idx];
+            slot.text.setText('✔️');
+            slot.text.setColor('#00ff00');
+            
+            const icon = this.add.image(slot.x, slot.y - 15, mat.icon).setScale(0.06);
+            this.labMenu.add(icon);
+            slot.icon = icon;
+
+            // Check win
+            if (this.labCurrentCrafting.length === 3) {
+                const hasMetal = this.labCurrentCrafting.find(m => m.id === 'mat_metal');
+                const hasGlass = this.labCurrentCrafting.find(m => m.id === 'mat_glass');
+                const hasCircuit = this.labCurrentCrafting.find(m => m.id === 'mat_circuit');
+                
+                if (hasMetal && hasGlass && hasCircuit) {
+                    this.showToast('CHẾ TẠO THÀNH CÔNG: Pin Mặt Trời!');
+                    
+                    const panel = BUILDING_TYPES.find(b => b.key === 'solar_panel');
+                    this.money += panel.cost;
+                    this.updateHUD();
+                    this.showFloatingText(this.cameras.main.width / 2, this.cameras.main.height / 2, 'Nhận 1 Pin Mặt Trời (Quy đổi $100)', '#00ff00');
+                    
+                    this.time.delayedCall(1500, () => {
+                        this.labMenu.setVisible(false);
+                    });
+                } else {
+                    this.showToast('Công thức sai! Bạn cần đủ 3 vật liệu khác nhau.');
+                    this.time.delayedCall(1000, () => this.resetLab());
+                }
+            }
+        }
+    }
+
+    resetLab() {
+        this.labCurrentCrafting = [];
+        this.labCraftingSlots.forEach(slot => {
+            slot.text.setText('?');
+            slot.text.setColor('#555');
+            if (slot.icon) {
+                slot.icon.destroy();
+                slot.icon = null;
+            }
+        });
+    }
+
     checkRobotEvolution() {
         const totalUpgrades = (this.playerSpeedLevel - 1) + (this.playerCapLevel - 1);
         let targetKey = 'worker_robot';
@@ -2553,15 +2868,20 @@ class EcoTycoon extends Phaser.Scene {
             evolutionMsg = 'ROBOT TIẾN HÓA BẬC TRUNG!';
         }
 
-        if (this.player && this.player.texture.key !== targetKey) {
+        let actualTargetKey = targetKey;
+        if (this.playerSkin) actualTargetKey = this.playerSkin;
+
+        if (this.player && this.player.texture.key !== actualTargetKey) {
             this.tweens.add({
                 targets: this.player,
                 scale: 0,
                 duration: 400,
                 ease: 'Back.In',
                 onComplete: () => {
-                    this.player.setTexture(targetKey);
-                    const newScale = targetKey === 'industrial_robot' ? 0.2 : 0.12;
+                    this.player.setTexture(actualTargetKey);
+                    let newScale = targetKey === 'industrial_robot' ? 0.2 : 0.12;
+                    if (this.playerSkin) newScale = 0.15; // Kích thước cố định cho skin
+                    
                     if (targetKey === 'industrial_robot' && !this.isMaxEvolved) {
                         this.isMaxEvolved = true;
                         this.playerSpeed *= 1.2;
@@ -3580,6 +3900,25 @@ class EcoTycoon extends Phaser.Scene {
                 this.updateHUD();
 
                 if (percentage === 100) {
+                    // Unlock next map
+                    const currentIdx = MAP_THEMES.findIndex(t => t.id === this.mapTheme);
+                    if (currentIdx !== -1 && currentIdx < MAP_THEMES.length - 1) {
+                        const nextTheme = MAP_THEMES[currentIdx + 1];
+                        let unlockedMaps = ['tropical'];
+                        try {
+                            const saved = localStorage.getItem('eco_unlocked_maps');
+                            if (saved) unlockedMaps = JSON.parse(saved);
+                        } catch (e) {}
+                        
+                        if (!unlockedMaps.includes(nextTheme.id)) {
+                            unlockedMaps.push(nextTheme.id);
+                            localStorage.setItem('eco_unlocked_maps', JSON.stringify(unlockedMaps));
+                            setTimeout(() => {
+                                this.showFloatingText(this.cameras.main.width / 2, this.cameras.main.height / 2 + 50, `ĐÃ MỞ KHÓA: ${nextTheme.name.toUpperCase()}!`, '#ffff00');
+                            }, 2000);
+                        }
+                    }
+
                     this.showPrestigeMenu();
                 }
             }
@@ -4309,6 +4648,7 @@ class EcoTycoon extends Phaser.Scene {
                         this.ecoPoints += 2;
                         this.showFloatingText(this.player.x, this.player.y - 30, '+$5 | +2🌱', '#00ff00');
                         this.updateQuestProgress('q1', 1);
+                        this.updateQuestProgress('q5', 1);
                         if (this.tutorialStep === 2) this.advanceTutorial();
 
                         this.updatePlayerStatus();
@@ -4381,6 +4721,12 @@ class EcoTycoon extends Phaser.Scene {
 
             if (this.cleanliness >= 15) {
                 this.updateQuestProgress('q4', 15);
+            }
+            if (this.cleanliness >= 50) {
+                this.updateQuestProgress('q6', 50);
+            }
+            if (this.cleanliness >= 100) {
+                this.updateQuestProgress('q7', 100);
             }
 
             // Milestones cho Professor Eco & Wildlife
