@@ -456,6 +456,7 @@ class MainMenuScene extends Phaser.Scene {
         this.add.text(20, 20, '⬅ Đăng Xuất', { font: 'bold 16px Inter', fill: '#ff4444', stroke: '#000000', strokeThickness: 4 }).setInteractive({ useHandCursor: true })
             .on('pointerdown', async () => {
                 localStorage.removeItem('eco_username');
+                localStorage.removeItem('eco_save_data'); // Xóa lưu tiến trình khi sign out
                 await supabase.auth.signOut();
                 this.scene.start('LoginScene');
             });
@@ -1643,19 +1644,19 @@ class EcoTycoon extends Phaser.Scene {
             this.openQuestMenu();
         });
 
-        // --- Pause / Exit Button (Top Right, beside Quest) ---
+        // --- Pause / Exit Button (Top Left, below Banner) ---
         const btnExitBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
         btnExitBg.fillStyle(0xdc143c, 1);
-        btnExitBg.fillRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnExitBg.fillRoundedRect(this.cameras.main.width / 2 - 70, 85, 140, 36, 10);
         btnExitBg.lineStyle(3, 0x8b0000);
-        btnExitBg.strokeRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnExitBg.strokeRoundedRect(this.cameras.main.width / 2 - 70, 85, 140, 36, 10);
 
-        const btnExitHitArea = this.add.rectangle(this.cameras.main.width - 890, 42, 140, 45, 0x000, 0)
+        const btnExitHitArea = this.add.rectangle(this.cameras.main.width / 2, 103, 140, 36, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
 
-        this.add.text(this.cameras.main.width - 890, 42, '⏸ TẠM DỪNG', {
+        this.add.text(this.cameras.main.width / 2, 103, '⏸ TẠM DỪNG', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
@@ -1824,9 +1825,17 @@ class EcoTycoon extends Phaser.Scene {
                     return;
                 }
                 if (this.menuMode === 'build') {
+                    if (this.money < btn.cost) {
+                        this.showToast('Không đủ tiền!');
+                        return;
+                    }
                     this.selectedBuildingType = btn;
                     this.selectedDecorType = null;
                 } else {
+                    if (this.ecoPoints < btn.costEco) {
+                        this.showToast('Không đủ Eco Points!');
+                        return;
+                    }
                     this.selectedDecorType = btn;
                     this.selectedBuildingType = null;
                 }
@@ -2555,8 +2564,8 @@ class EcoTycoon extends Phaser.Scene {
                     const newScale = targetKey === 'industrial_robot' ? 0.2 : 0.12;
                     if (targetKey === 'industrial_robot' && !this.isMaxEvolved) {
                         this.isMaxEvolved = true;
-                        this.playerSpeed *= 1.5;
-                        this.playerCap += 2;
+                        this.playerSpeed *= 1.2;
+                        this.playerCap = 10;
                         this.updatePlayerStatus();
                     }
                     this.player.setScale(newScale);
