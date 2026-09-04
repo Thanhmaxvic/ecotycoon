@@ -3337,13 +3337,21 @@ class EcoTycoon extends Phaser.Scene {
         const py = this.cameras.main.height - 300;
 
         this.tutorialBg = this.add.graphics();
-        this.tutorialBg.fillStyle(0xffffff, 1);
+        this.tutorialBg.fillStyle(0xffffff, 0.85); // Nền trong mờ
         this.tutorialBg.fillRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
         this.tutorialBg.lineStyle(4, 0x4caf50);
         this.tutorialBg.strokeRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
 
         this.tutorialText = this.add.text(px, py, '', { font: 'bold 18px Inter', fill: '#333', align: 'center', wordWrap: { width: 350 } }).setOrigin(0.5);
-        this.tutorialMenu.add([this.tutorialBg, this.tutorialText]);
+        
+        const closeBtn = this.add.text(px + pw / 2 - 20, py - ph / 2 + 20, 'X', { font: 'bold 20px Inter', fill: '#ff0000' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        closeBtn.on('pointerdown', () => {
+            this.tutorialMenu.setVisible(false);
+            this.tutorialCompleted = true;
+            this.saveGame();
+        });
+
+        this.tutorialMenu.add([this.tutorialBg, this.tutorialText, closeBtn]);
     }
 
     advanceTutorial() {
