@@ -9,8 +9,8 @@ const CONFIG = {
     TILE_WIDTH: 220,
     TILE_HEIGHT: 110,
     GRID_SIZE: 11,
-    START_MONEY: 0,
-    START_ECO_POINTS: 0,
+    START_MONEY: 200,
+    START_ECO_POINTS: 100,
     CLEAN_RATE_MULTIPLIER: 0.02,
     MAX_BUILDING_LEVEL: 5,
     UPGRADE_COST_MULTIPLIER: 1.5,
@@ -767,6 +767,19 @@ class EcoTycoon extends Phaser.Scene {
         this.buttons = [];
         this.menuMode = 'build'; // 'build' or 'decor'
 
+        // Quest System
+        this.quests = [
+            { id: 'q1', text: 'Thu gom 5 rác', target: 5, progress: 0, rewardM: 100, rewardE: 20, completed: false, claimed: false },
+            { id: 'q2', text: 'Xây 3 Pin Mặt Trời', target: 3, progress: 0, rewardM: 200, rewardE: 50, completed: false, claimed: false },
+            { id: 'q3', text: 'Nâng cấp Robot 1 lần', target: 1, progress: 0, rewardM: 0, rewardE: 100, completed: false, claimed: false },
+            { id: 'q4', text: 'Đạt 15% Độ Sạch', target: 15, progress: 0, rewardM: 500, rewardE: 150, completed: false, claimed: false }
+        ];
+        this.questUnread = 0;
+
+        // Tutorial State
+        this.tutorialStep = 0;
+        this.tutorialCompleted = false;
+
         this.landTrash = [];
         this.player = null;
         this.playerStatusText = null;
@@ -813,17 +826,16 @@ class EcoTycoon extends Phaser.Scene {
         this.setupUI();
         this.setupInputs();
 
-        // Tạo popup hướng dẫn
-        this.createTutorialPopup();
+        // Thay thế createTutorialPopup() tĩnh bằng Guided Tutorial và Quest Menu
+        this.createGuidedTutorial();
+        this.createQuestMenu();
 
         if (this.gameMode === 'multi') {
             this.createLeaderboardUI();
-            // Giữ trạng thái SETUP - chờ Host chọn thời gian qua createMatchSetupMenu()
             this.gameState = 'SETUP';
             this.matchDuration = 0;
             this.matchTimer = 0;
             
-            // Setup real players for leaderboard
             this.bots = [];
             for (let i = 0; i < 3; i++) {
                 if (i !== this.myIndex) {
@@ -841,8 +853,17 @@ class EcoTycoon extends Phaser.Scene {
             this.matchDuration = Infinity;
             this.matchTimer = Infinity;
             
-            // Hiện hướng dẫn khi bắt đầu chơi đơn lần đầu
-            this.time.delayedCall(800, () => this.showTutorial());
+            this.loadGame(); // Khôi phục tiến trình (nếu có)
+            
+            // Bắt đầu hoặc tiếp tục Tutorial
+            this.time.delayedCall(800, () => this.advanceTutorial());
+            
+            // Auto-save mỗi 15 giây
+            this.time.addEvent({
+                delay: 15000,
+                loop: true,
+                callback: () => this.saveGame()
+            });
         }
 
         window.ProgressLogger.logProgress('game_started');
@@ -1586,19 +1607,44 @@ class EcoTycoon extends Phaser.Scene {
             this.showQuiz();
         });
 
-        // --- Pause / Exit Button (Top Right, beside Quiz) ---
-        const btnExitBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
-        btnExitBg.fillStyle(0xdc143c, 1);
-        btnExitBg.fillRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
-        btnExitBg.lineStyle(3, 0x8b0000);
-        btnExitBg.strokeRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
+        // --- Quest Button (Top Right, beside Quiz) ---
+        const btnQuestBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        btnQuestBg.fillStyle(0x00ccff, 1);
+        btnQuestBg.fillRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
+        btnQuestBg.lineStyle(3, 0x0088cc);
+        btnQuestBg.strokeRoundedRect(this.cameras.main.width - 800, 20, 140, 45, 10);
         
-        const btnExitHitArea = this.add.rectangle(this.cameras.main.width - 730, 42, 140, 45, 0x000, 0)
+        const btnQuestHitArea = this.add.rectangle(this.cameras.main.width - 730, 42, 140, 45, 0x000, 0)
             .setInteractive({ useHandCursor: true })
             .setScrollFactor(0)
             .setDepth(1001);
             
-        this.add.text(this.cameras.main.width - 730, 42, '⏸ TẠM DỪNG', {
+        this.add.text(this.cameras.main.width - 730, 42, '🎯 NHIỆM VỤ', {
+            font: 'bold 14px Inter',
+            fill: '#000000'
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
+        
+        this.questBadgeBg = this.add.circle(this.cameras.main.width - 670, 25, 10, 0xff0000).setScrollFactor(0).setDepth(1002).setVisible(false);
+        this.questBadgeText = this.add.text(this.cameras.main.width - 670, 25, '!', { font: 'bold 12px Inter', fill: '#ffffff' }).setOrigin(0.5).setScrollFactor(0).setDepth(1003).setVisible(false);
+
+        btnQuestHitArea.on('pointerdown', (pointer) => {
+            pointer.event.stopPropagation();
+            this.openQuestMenu();
+        });
+
+        // --- Pause / Exit Button (Top Right, beside Quest) ---
+        const btnExitBg = this.add.graphics().setScrollFactor(0).setDepth(1000);
+        btnExitBg.fillStyle(0xdc143c, 1);
+        btnExitBg.fillRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        btnExitBg.lineStyle(3, 0x8b0000);
+        btnExitBg.strokeRoundedRect(this.cameras.main.width - 960, 20, 140, 45, 10);
+        
+        const btnExitHitArea = this.add.rectangle(this.cameras.main.width - 890, 42, 140, 45, 0x000, 0)
+            .setInteractive({ useHandCursor: true })
+            .setScrollFactor(0)
+            .setDepth(1001);
+            
+        this.add.text(this.cameras.main.width - 890, 42, '⏸ TẠM DỪNG', {
             font: 'bold 14px Inter',
             fill: '#ffffff'
         }).setOrigin(0.5).setScrollFactor(0).setDepth(1001);
@@ -1714,6 +1760,7 @@ class EcoTycoon extends Phaser.Scene {
                         }
                         this.sound.play('build_sfx');
                         this.showFloatingText(this.cameras.main.width / 2, this.cameras.main.height / 2, 'NÂNG CẤP THÀNH CÔNG!', '#00ff00');
+                        this.updateQuestProgress('q3', 1);
                         this.checkRobotEvolution();
                         this.refreshMenu();
                         this.updateHUD();
@@ -2127,6 +2174,12 @@ class EcoTycoon extends Phaser.Scene {
             this.money -= this.selectedBuildingType.cost;
             this.sound.play('build_sfx');
             
+            // Hooks cho Quest & Tutorial
+            if (this.selectedBuildingType.name === 'Pin Mặt Trời' || this.selectedBuildingType.name === 'Tua-bin Gió' || this.selectedBuildingType.name === 'TT Nghiên Cứu') {
+                this.updateQuestProgress('q2', 1);
+            }
+            if (this.tutorialStep === 1) this.advanceTutorial();
+            
             // Remove polluted decor if it exists
             if (cell.pollutedDecor) {
                 cell.pollutedDecor.destroy();
@@ -2148,7 +2201,8 @@ class EcoTycoon extends Phaser.Scene {
                 isProcessor: this.selectedBuildingType.isProcessor,
                 processType: this.selectedBuildingType.processType,
                 maxKey: this.selectedBuildingType.maxKey || null,
-                isEvolved: false
+                isEvolved: false,
+                cell: cell
             });
             b.setDepth(this.getDepthForCell(cell, 5));
             b.setData('constructionScale', 0.1);
@@ -3249,66 +3303,277 @@ class EcoTycoon extends Phaser.Scene {
         }
     }
 
-    createTutorialPopup() {
-        this.tutorialMenu = this.add.container(0, 0).setDepth(5500).setVisible(false).setScrollFactor(0);
+    createGuidedTutorial() {
+        this.tutorialMenu = this.add.container(0, 0).setDepth(6000).setVisible(false).setScrollFactor(0);
         
-        const overlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000, 0.85).setInteractive();
+        const pw = 400, ph = 150;
+        const px = this.cameras.main.width / 2;
+        const py = this.cameras.main.height - 300;
         
-        const pw = 800, ph = 600;
-        const px = (this.cameras.main.width - pw) / 2;
-        const py = (this.cameras.main.height - ph) / 2;
+        this.tutorialBg = this.add.graphics();
+        this.tutorialBg.fillStyle(0xffffff, 1);
+        this.tutorialBg.fillRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
+        this.tutorialBg.lineStyle(4, 0x4caf50);
+        this.tutorialBg.strokeRoundedRect(px - pw / 2, py - ph / 2, pw, ph, 16);
         
-        const bg = this.add.graphics();
-        bg.fillStyle(0xffffff, 1);
-        bg.fillRoundedRect(px, py, pw, ph, 20);
-        bg.lineStyle(6, 0x4caf50);
-        bg.strokeRoundedRect(px, py, pw, ph, 20);
-        
-        const title = this.add.text(this.cameras.main.width / 2, py + 40, 'HƯỚNG DẪN CHIẾN THUẬT ECO-TYCOON', { font: 'bold 30px Inter', fill: '#2e7d32' }).setOrigin(0.5);
-        
-        // Thêm background và title vào container trước
-        this.tutorialMenu.add([overlay, bg, title]);
-        
-        const strategyPoints = [
-            "🎮 DI CHUYỂN: Dùng WASD/Mũi tên. Theo dõi TIỀN, ECO và LƯỢNG RÁC ở góc trên bên trái.",
-            "⚠️ CHIẾN THUẬT: Đừng để rác ngập đảo (quá 48 cụm)! Nếu quá tải, độ sạch sẽ giảm nhanh chóng.",
-            "🧪 NGHIÊN CỨU: Vào 'TT Nghiên Cứu' để mở khóa công nghệ và máy móc hiện đại hơn.",
-            "📚 THƯ VIỆN: Nơi giúp bạn phân biệt 4 loại rác (Hữu cơ, Nhựa, Kim loại, Điện tử) và cách xử lý.",
-            "🕹️ MINI-GAME & QUIZ: Tham gia giải trí hoặc trả lời câu hỏi để kiếm thêm Tiền và Eco Points.",
-            "🏗️ NÂNG CẤP: Click vào máy đã xây để nâng cấp lên Max Lv.5 giúp tăng mạnh hiệu suất.",
-            "🏆 MỤC TIÊU: Hồi sinh hòn đảo đạt 100% ĐỘ SẠCH để giành chiến thắng!"
-        ];
-        
-        strategyPoints.forEach((s, i) => {
-            const txt = this.add.text(px + 40, py + 100 + i * 58, s, { 
-                font: '17px Inter', 
-                fill: '#333', 
-                wordWrap: { width: 720 },
-                lineSpacing: 10
-            });
-            this.tutorialMenu.add(txt);
-        });
-        
-        const startBtnBg = this.add.graphics();
-        startBtnBg.fillStyle(0x4caf50, 1);
-        startBtnBg.fillRoundedRect(this.cameras.main.width / 2 - 120, py + ph - 70, 240, 50, 10);
-        
-        const startBtnTxt = this.add.text(this.cameras.main.width / 2, py + ph - 45, 'TÔI ĐÃ HIỂU', { font: 'bold 20px Inter', fill: '#ffffff' }).setOrigin(0.5);
-        const startHit = this.add.rectangle(this.cameras.main.width / 2, py + ph - 45, 240, 50, 0x0, 0).setInteractive({ useHandCursor: true });
-        
-        startHit.on('pointerdown', () => {
-            this.tutorialMenu.setVisible(false);
-            if (this.music && !this.music.isPlaying) this.music.play();
-        });
-        
-        // Thêm các nút bấm vào container sau cùng
-        this.tutorialMenu.add([startBtnBg, startBtnTxt, startHit]);
+        this.tutorialText = this.add.text(px, py, '', { font: 'bold 18px Inter', fill: '#333', align: 'center', wordWrap: { width: 350 } }).setOrigin(0.5);
+        this.tutorialMenu.add([this.tutorialBg, this.tutorialText]);
     }
     
-    showTutorial() {
-        this.tutorialMenu.setVisible(true);
-        this.tutorialMenu.setAlpha(0);
-        this.tweens.add({ targets: this.tutorialMenu, alpha: 1, duration: 300 });
+    advanceTutorial() {
+        if (this.tutorialCompleted) return;
+        
+        const steps = [
+            "Chào mừng đến đảo Sinh Thái! Dùng [W A S D] để lái robot.\nHãy click vào bảng MÁY MÓC bên dưới và chọn [Pin Mặt Trời].",
+            "Tốt lắm! Giờ hãy click vào một ô đất trống trên lưới để xây dựng nó.",
+            "Tuyệt vời! Bạn đã có nguồn thu nhập. Hãy di chuyển robot nhặt cụm rác vừa xuất hiện để nhận thưởng.",
+            "Rác được đổi thành Eco Points. Bấm vào nút [NHIỆM VỤ] góc trên bên phải để nhận thưởng khởi đầu nhé!"
+        ];
+        
+        if (this.tutorialStep < steps.length) {
+            this.tutorialText.setText(steps[this.tutorialStep]);
+            this.tutorialMenu.setVisible(true);
+            this.tutorialMenu.setAlpha(0);
+            this.tweens.add({ targets: this.tutorialMenu, alpha: 1, duration: 300 });
+            this.tutorialStep++;
+        } else {
+            this.tutorialMenu.setVisible(false);
+            this.tutorialCompleted = true;
+            this.showFloatingText(this.cameras.main.width / 2, this.cameras.main.height / 2, 'HOÀN THÀNH HƯỚNG DẪN!', '#00ff00');
+            this.saveGame();
+        }
+    }
+
+    createQuestMenu() {
+        this.questMenu = this.add.container(0, 0).setDepth(5000).setVisible(false).setScrollFactor(0);
+        this.questOverlay = this.add.rectangle(this.cameras.main.width / 2, this.cameras.main.height / 2, this.cameras.main.width, this.cameras.main.height, 0x000, 0.8).setInteractive();
+        
+        const pw = 600, ph = 400;
+        const px = this.cameras.main.width / 2;
+        const py = this.cameras.main.height / 2;
+        
+        const bg = this.add.graphics();
+        bg.fillStyle(0xfff8ee, 1);
+        bg.fillRoundedRect(px - pw/2, py - ph/2, pw, ph, 16);
+        bg.lineStyle(4, 0x0088cc);
+        bg.strokeRoundedRect(px - pw/2, py - ph/2, pw, ph, 16);
+        
+        const title = this.add.text(px, py - ph/2 + 30, '🎯 NHIỆM VỤ', { font: 'bold 24px Inter', fill: '#0088cc' }).setOrigin(0.5);
+        
+        const closeBtn = this.add.text(px + pw/2 - 30, py - ph/2 + 30, 'X', { font: 'bold 24px Inter', fill: '#ff0000' }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        closeBtn.on('pointerdown', () => this.questMenu.setVisible(false));
+        
+        this.questMenu.add([this.questOverlay, bg, title, closeBtn]);
+        this.questContainer = this.add.container(0, 0);
+        this.questMenu.add(this.questContainer);
+    }
+    
+    openQuestMenu() {
+        if (this.tutorialStep === 3) this.advanceTutorial();
+        this.questContainer.removeAll(true);
+        const px = this.cameras.main.width / 2;
+        const py = this.cameras.main.height / 2 - 100;
+        
+        this.quests.forEach((q, i) => {
+            const rowY = py + i * 70;
+            const itemBg = this.add.graphics();
+            itemBg.fillStyle(q.completed ? (q.claimed ? 0xdddddd : 0xeeffaa) : 0xffffff, 1);
+            itemBg.fillRoundedRect(px - 250, rowY - 30, 500, 60, 8);
+            itemBg.lineStyle(2, 0xcccccc);
+            itemBg.strokeRoundedRect(px - 250, rowY - 30, 500, 60, 8);
+            
+            const txt = this.add.text(px - 230, rowY - 15, q.text, { font: 'bold 16px Inter', fill: '#333' });
+            const progTxt = this.add.text(px - 230, rowY + 5, `Tiến độ: ${Math.min(q.progress, q.target)}/${q.target}`, { font: '14px Inter', fill: '#666' });
+            
+            let rewardStr = '';
+            if (q.rewardM > 0) rewardStr += `+$${q.rewardM} `;
+            if (q.rewardE > 0) rewardStr += `+${q.rewardE}🌱`;
+            const rewTxt = this.add.text(px, rowY, rewardStr, { font: 'bold 16px Inter', fill: '#0088cc' }).setOrigin(0.5);
+            
+            const btnBg = this.add.graphics();
+            const btnTxt = this.add.text(px + 180, rowY, '', { font: 'bold 14px Inter', fill: '#fff' }).setOrigin(0.5);
+            
+            if (q.claimed) {
+                btnBg.fillStyle(0xaaaaaa, 1);
+                btnBg.fillRoundedRect(px + 130, rowY - 15, 100, 30, 5);
+                btnTxt.setText('Đã nhận');
+            } else if (q.completed) {
+                btnBg.fillStyle(0xff8c00, 1);
+                btnBg.fillRoundedRect(px + 130, rowY - 15, 100, 30, 5);
+                btnTxt.setText('NHẬN!');
+                const hit = this.add.rectangle(px + 180, rowY, 100, 30, 0x0, 0).setInteractive({ useHandCursor: true });
+                hit.on('pointerdown', () => {
+                    q.claimed = true;
+                    this.money += q.rewardM;
+                    this.ecoPoints += q.rewardE;
+                    this.sound.play('clean_progress_sfx');
+                    this.showFloatingText(px + 180, rowY, 'Nhận thưởng!', '#00ff00');
+                    this.updateQuestBadge();
+                    this.updateHUD();
+                    this.openQuestMenu();
+                    this.saveGame();
+                });
+                this.questContainer.add(hit);
+            } else {
+                btnBg.fillStyle(0xcccccc, 1);
+                btnBg.fillRoundedRect(px + 130, rowY - 15, 100, 30, 5);
+                btnTxt.setText('Chưa đạt');
+            }
+            
+            this.questContainer.add([itemBg, txt, progTxt, rewTxt, btnBg, btnTxt]);
+        });
+        
+        this.questMenu.setVisible(true);
+    }
+    
+    updateQuestProgress(questId, amount = 1) {
+        if (this.gameMode === 'multi') return;
+        const q = this.quests.find(x => x.id === questId);
+        if (q && !q.completed) {
+            q.progress += amount;
+            if (q.progress >= q.target) {
+                q.progress = q.target;
+                q.completed = true;
+                this.updateQuestBadge();
+            }
+        }
+    }
+    
+    updateQuestBadge() {
+        const claimable = this.quests.filter(q => q.completed && !q.claimed).length;
+        if (claimable > 0) {
+            this.questBadgeBg.setVisible(true);
+            this.questBadgeText.setVisible(true);
+            this.questBadgeText.setText(claimable.toString());
+        } else {
+            this.questBadgeBg.setVisible(false);
+            this.questBadgeText.setVisible(false);
+        }
+    }
+
+    saveGame() {
+        if (this.gameMode !== 'single' || this.gameState !== 'PLAYING') return;
+        try {
+            const saveData = {
+                cleanliness: this.cleanliness,
+                money: this.money,
+                ecoPoints: this.ecoPoints,
+                playerSpeedLevel: this.playerSpeedLevel,
+                playerCapLevel: this.playerCapLevel,
+                unlockedTechs: this.unlockedTechs,
+                quests: this.quests,
+                tutorialStep: this.tutorialStep,
+                tutorialCompleted: this.tutorialCompleted,
+                buildings: this.buildings.map(b => {
+                    const cell = b.getData('cell');
+                    return {
+                        gridX: cell ? cell.x : -1,
+                        gridY: cell ? cell.y : -1,
+                        key: b.getData('key'),
+                        level: b.getData('level')
+                    };
+                }).filter(b => b.gridX !== -1)
+            };
+            localStorage.setItem('eco_save_data', JSON.stringify(saveData));
+        } catch (e) {
+            console.error('Error saving game:', e);
+        }
+    }
+    
+    loadGame() {
+        if (this.gameMode !== 'single') return;
+        const saved = localStorage.getItem('eco_save_data');
+        if (!saved) return;
+        
+        try {
+            const data = JSON.parse(saved);
+            this.cleanliness = data.cleanliness || 0;
+            this.money = data.money || CONFIG.START_MONEY;
+            this.ecoPoints = data.ecoPoints || CONFIG.START_ECO_POINTS;
+            this.playerSpeedLevel = data.playerSpeedLevel || 1;
+            this.playerCapLevel = data.playerCapLevel || 1;
+            this.playerSpeed = ROBOT_UPGRADES[0].levels[this.playerSpeedLevel - 1];
+            this.playerCap = ROBOT_UPGRADES[1].levels[this.playerCapLevel - 1];
+            this.unlockedTechs = data.unlockedTechs || [];
+            this.tutorialStep = data.tutorialStep || 0;
+            this.tutorialCompleted = data.tutorialCompleted || false;
+            
+            if (data.quests) {
+                // Merge loaded quests with current quest templates to maintain rewards/texts
+                data.quests.forEach(sq => {
+                    const q = this.quests.find(x => x.id === sq.id);
+                    if (q) {
+                        q.progress = sq.progress;
+                        q.completed = sq.completed;
+                        q.claimed = sq.claimed;
+                    }
+                });
+                this.updateQuestBadge();
+            }
+            
+            if (data.buildings) {
+                data.buildings.forEach(bData => {
+                    const cell = this.grid[bData.gridX][bData.gridY];
+                    if (cell) {
+                        const type = BUILDING_TYPES.find(t => t.key === bData.key) || DECOR_TYPES.find(t => t.key === bData.key);
+                        if (type) {
+                            // Instantiate building using similar logic to handleCellClick
+                            const isDecor = DECOR_TYPES.includes(type);
+                            const newBuilding = this.add.image(cell.posX, cell.posY - 10, type.key).setDepth(2000);
+                            newBuilding.setScale(type.key.includes('tree') ? 0.12 : 0.1);
+                            
+                            newBuilding.setInteractive({ useHandCursor: true });
+                            newBuilding.on('pointerdown', () => {
+                                if (!isDecor && newBuilding.getData('ownerIndex') === this.myIndex) {
+                                    this.selectBuilding(newBuilding);
+                                }
+                            });
+                            
+                            newBuilding.setData({
+                                key: type.key,
+                                cell: cell,
+                                isDecor: isDecor,
+                                ownerIndex: this.myIndex
+                            });
+                            
+                            if (!isDecor) {
+                                const level = bData.level || 1;
+                                const baseCleanRate = type.cleanRate || 0;
+                                const baseIncomeRate = type.incomeRate || 0;
+                                const baseEcoRate = type.ecoRate || 0;
+                                
+                                newBuilding.setData({
+                                    level: level,
+                                    name: type.name,
+                                    baseCleanRate: baseCleanRate,
+                                    baseIncomeRate: baseIncomeRate,
+                                    baseEcoRate: baseEcoRate,
+                                    cleanRate: baseCleanRate * (1 + CONFIG.UPGRADE_OUTPUT_MULTIPLIER * (level - 1)),
+                                    incomeRate: baseIncomeRate * (1 + CONFIG.UPGRADE_OUTPUT_MULTIPLIER * (level - 1)),
+                                    ecoRate: baseEcoRate * (1 + CONFIG.UPGRADE_OUTPUT_MULTIPLIER * (level - 1)),
+                                    isProcessor: type.isProcessor || false,
+                                    processType: type.processType || null,
+                                    maxKey: type.maxKey || null
+                                });
+                                newBuilding.setScale(0.1 + (level - 1) * 0.015);
+                            }
+                            
+                            cell.building = newBuilding;
+                            cell.ownerIndex = this.myIndex;
+                            this.buildings.push(newBuilding);
+                            this.buildingGroup.add(newBuilding);
+                            this.sortDepths();
+                        }
+                    }
+                });
+            }
+            
+            this.checkRobotEvolution();
+            this.updateHUD();
+            this.updateMask();
+        } catch (e) {
+            console.error("Lỗi khi load save data", e);
+        }
     }
     
     showQuiz() {
@@ -3766,6 +4031,13 @@ class EcoTycoon extends Phaser.Scene {
                         t.destroy();
                         this.sound.play('build_sfx', { volume: 0.5 }); // Simple pickup sound
                         
+                        // Thưởng nhỏ cho việc nhặt rác thủ công & cập nhật Quest/Tutorial
+                        this.money += 5;
+                        this.ecoPoints += 2;
+                        this.showFloatingText(this.player.x, this.player.y - 30, '+$5 | +2🌱', '#00ff00');
+                        this.updateQuestProgress('q1', 1);
+                        if (this.tutorialStep === 2) this.advanceTutorial();
+                        
                         this.updatePlayerStatus();
                         this.updateHUD(); // Update the counter instantly
                         
@@ -3830,6 +4102,10 @@ class EcoTycoon extends Phaser.Scene {
 
             if (Math.floor(this.cleanliness / 10) > Math.floor(oldCleanliness / 10)) {
                 this.sound.play('clean_progress_sfx', { volume: 0.3 });
+            }
+            
+            if (this.cleanliness >= 15) {
+                this.updateQuestProgress('q4', 15);
             }
 
             if (this.cleanliness >= 100 && oldCleanliness < 100) {
